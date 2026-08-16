@@ -7,8 +7,19 @@
  *
  *   1. fetches that manifest,
  *   2. validates its shape (version + platforms.darwin-aarch64.url/signature),
- *   3. probes the update package URL and accepts HTTP 200/302,
- *   4. prints the version + URL so the result is greppable.
+ *   3. checks that the minisign key id embedded in the signature matches the
+ *      updater public key configured in src-tauri/tauri.conf.json (the
+ *      8-byte key id is a fingerprint of the signing key, so a manifest
+ *      signed by any other key is rejected here),
+ *   4. probes the update package URL and accepts HTTP 200/302,
+ *   5. prints the version + URL so the result is greppable.
+ *
+ * Limitation: step 3 proves the signature belongs to the configured key, not
+ * that the downloaded archive hashes to the signed bytes. Full content
+ * verification needs a minisign tool against the downloaded package:
+ *   minisign -V -p <public.key> -m <archive> -s <signature-file>
+ * (not automated here — it requires a ~66 MiB download; `tauri signer` has
+ * no `verify` subcommand).
  *
  * Usage:
  *   node scripts/verify-update.mjs                      # default repo URL
@@ -18,8 +29,9 @@
  *
  * The default repo is read from `git remote get-url origin` (github.com),
  * falling back to Lsnsh/deepseek-harness-desktop. Exit code 0 = OK,
- * 1 = manifest missing/invalid or the update URL unreachable (e.g. before
- * the first release, when the updater-latest tag does not exist yet).
+ * 1 = manifest missing/invalid, signature key mismatch, or the update URL
+ * unreachable (e.g. before the first release, when the updater-latest tag
+ * does not exist yet).
  *
  * `--expect-version` is the post-release assertion the release workflow
  * passes: the manifest must name exactly the version that was just
@@ -30,7 +42,11 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
+const DESKTOP_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const MANIFEST_FILE = 'latest.json'
 const TIMEOUT_MS = 30_000
 const ACCEPTED_STATUS = new Set([200, 302]) // 302: GitHub asset redirect; 200: final CDN
@@ -120,6 +136,42 @@ async function checkUrl(url) {
   throw new Error(`HEAD and GET both failed for ${url}`)
 }
 
+/**
+ * The updater public key configured in src-tauri/tauri.conf.json
+ * (plugins.updater.pubkey): base64 of a minisign .pub file —
+ * "untrusted comment: minisign public key: <hex>\n<base64 key line>".
+ * The key line decodes to "Ed" (2) + keyId (8) + ed25519 key (32).
+ * @returns {{ keyId: Buffer } | null}
+ */
+function configuredPubkey() {
+  try {
+    const conf = JSON.parse(readFileSync(join(DESKTOP_ROOT, 'src-tauri', 'tauri.conf.json'), 'utf8'))
+    const pubkey = conf.plugins?.updater?.pubkey
+    if (typeof pubkey !== 'string' || !pubkey) return null
+    const text = Buffer.from(pubkey, 'base64').toString('utf8')
+    const keyLine = text.split('\n').find((l) => l && !l.startsWith('untrusted'))
+    if (!keyLine) return null
+    return { keyId: Buffer.from(keyLine, 'base64').subarray(2, 10) }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Extract the 8-byte minisign key id from a manifest signature: base64 of a
+ * minisign .sig file — "untrusted comment: …\n<base64 sig line>". The sig
+ * line decodes to "ED" (2) + keyId (8) + signature (64).
+ * @returns {Buffer}
+ */
+function signatureKeyId(signatureB64) {
+  const text = Buffer.from(signatureB64, 'base64').toString('utf8')
+  const sigLine = text.split('\n').find((l) => l && !l.startsWith('untrusted'))
+  if (!sigLine) throw new Error('signature has no signature line')
+  const sigRaw = Buffer.from(sigLine, 'base64')
+  if (sigRaw.length < 74) throw new Error(`signature too short (${sigRaw.length} bytes)`)
+  return sigRaw.subarray(2, 10)
+}
+
 async function main() {
   let options
   try {
@@ -160,6 +212,22 @@ async function main() {
   console.log(`verify-update: manifest version = ${version}`)
   console.log(`verify-update: darwin-aarch64.url = ${platform.url}`)
   console.log(`verify-update: signature present = ${platform.signature.length > 0} (${platform.signature.length} chars)`)
+
+  // Signature ↔ configured public key consistency check.
+  const pubkey = configuredPubkey()
+  if (pubkey) {
+    const sigKeyId = signatureKeyId(platform.signature)
+    if (sigKeyId.equals(pubkey.keyId)) {
+      console.log(`verify-update: signature key id ${sigKeyId.toString('hex')} matches configured pubkey ✓`)
+    } else {
+      throw new Error(
+        `signature key id ${sigKeyId.toString('hex')} does not match the configured ` +
+          `updater pubkey (${pubkey.keyId.toString('hex')}) — manifest was NOT signed by this app's key`,
+      )
+    }
+  } else {
+    console.warn('verify-update: WARNING — could not read plugins.updater.pubkey from src-tauri/tauri.conf.json; key-id check skipped')
+  }
 
   const status = await checkUrl(platform.url)
   console.log(`verify-update: update package reachable (HTTP ${status})`)

@@ -28,7 +28,7 @@
 
 | Capability | Details |
 | --- | --- |
-| Bundled runtime | Node.js LTS v24.19.0 + full `@deepseek-ai/dsh` production closure (~63 MiB compressed archive with size pruning; see below) |
+| Bundled runtime | Node.js LTS v24.19.0 + full `@deepseek-ai/dsh` production closure (~66 MiB compressed archive with size pruning; see below) |
 | Local-first | Sessions and settings live on your machine (default `~/.dsh`); the service binds `127.0.0.1` |
 | Single instance | Launching again focuses the existing window instead of starting a second server |
 | Tray resident | Closing the window hides to the tray; the background service keeps running |
@@ -49,7 +49,7 @@ Grab the DMG (or .app) from the [Releases](https://github.com/Lsnsh/deepseek-har
 ```bash
 pnpm install                        # install dependencies
 pnpm run runtime                      # assemble the bundled runtime (downloads Node v24.19.0 + prod-installs @deepseek-ai/dsh)
-DSH_DESKTOP_PRUNE=1 pnpm run runtime  # same, but prune dead weight first (node strip, .map/.d.ts, node-pty cross-platform prebuilds, READMEs/tests): ~97 MiB -> ~63 MiB
+DSH_DESKTOP_PRUNE=1 pnpm run runtime  # same, but prune dead weight first (node strip, .map/.d.ts, node-pty cross-platform prebuilds, OTel esm/esnext builds, READMEs/tests): ~97 MiB -> ~66 MiB
 pnpm run smoke                      # boot the assembled runtime exactly like the shell and GET the root
 pnpm run tauri:dev                  # development mode
 pnpm run tauri:build                # release build (.app + .dmg)
@@ -83,7 +83,7 @@ pnpm run verify:update              # verify the updater-latest manifest + updat
 
 ### How it works
 
-1. `scripts/assemble-runtime.mjs` prod-installs `@deepseek-ai/dsh` with npm in a temp dir (real directories, no symlinks), then bundles it with the downloaded Node binary as `resources/runtime.tar.gz`. Release builds set `DSH_DESKTOP_PRUNE=1` to prune dead weight first (strip the node binary + re-sign, drop `.map`/`.d.ts`, node-pty cross-platform prebuilds, READMEs/tests): the archive goes from ~97 MiB to ~63 MiB.
+1. `scripts/assemble-runtime.mjs` prod-installs `@deepseek-ai/dsh` with npm in a temp dir (real directories, no symlinks), then bundles it with the downloaded Node binary as `resources/runtime.tar.gz`. Release builds set `DSH_DESKTOP_PRUNE=1` to prune dead weight first (strip the node binary + re-sign, drop `.map`/`.d.ts`, node-pty cross-platform prebuilds, READMEs/tests): the archive goes from ~97 MiB to ~66 MiB (gzip -9).
 2. Release builds ship the archive as a Tauri resource.
 3. On first launch the app extracts the archive into a cache dir keyed by a content hash (stale versions are cleaned up automatically).
 4. Rust spawns `dsh --profile web --port 0` with the bundled Node (OS-assigned port), reads the readiness line `dsh web: http://127.0.0.1:<port>` from stdout, polls the root, then navigates the window.
