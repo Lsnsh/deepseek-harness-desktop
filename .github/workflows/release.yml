@@ -98,8 +98,13 @@ jobs:
           security create-keychain -p dsh-temp dsh-build.keychain
           security default-keychain -s dsh-build.keychain
           security unlock-keychain -p dsh-temp dsh-build.keychain
-          security import /tmp/apple-cert.p12 -k dsh-build.keychain             -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s             -k dsh-temp dsh-build.keychain
+          # Keep the keychain unlocked for the build (Tauri docs).
+          security set-keychain-settings -t 3600 -u dsh-build.keychain
+          security import /tmp/apple-cert.p12 -k dsh-build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k dsh-temp dsh-build.keychain
+          security find-identity -v -p codesigning dsh-build.keychain
       - name: Assemble the bundled runtime (with size pruning)
         # DSH_DESKTOP_PRUNE=1 (opt-in in assemble-runtime.mjs) strips the
         # bundled node binary and drops dead weight (.map/.d.ts, node-pty
