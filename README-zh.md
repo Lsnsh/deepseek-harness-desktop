@@ -34,6 +34,7 @@
 | 托盘常驻 | 关闭窗口最小化到托盘，后台服务继续运行 |
 | 自动更新 | 启动 3 秒后静默检查更新；菜单「Check for Updates…」手动检查；更新清单经签名校验 |
 | 会话通知 | 轮询会话存储，回合完成（`turn/end`，reason 为 completed/error）时发系统通知 |
+| 插件管理 | 管理 GitHub `dsh-plugin` topic 插件：列表/搜索/安装/卸载；安装前校验 manifest（`dsh.bundle`/`dsh.client` 契约）、安装确认、审计日志（`~/.dsh/desktop-audit.log`） |
 | 外链跳转 | GUI 内的外部链接交给系统浏览器，窗口只访问本地服务 |
 | 错误兜底 | 内置服务启动失败时展示错误页，日志写入系统日志目录 |
 
@@ -128,7 +129,7 @@ pnpm run signer-key
 - [x] macOS 端：开发 / CI / 部署 / 自动更新全流程
 - [ ] 会话完成通知点击后**跳转到对应会话**
 - [ ] Windows / Linux 支持
-- [ ] dsh plugin 管理（CRUD，来源 GitHub `dsh-plugin` topic）
+- [x] dsh plugin 管理（MVP：从 GitHub `dsh-plugin` topic 列表/搜索/安装/卸载，含安装前 manifest 校验与审计日志）
 - [ ] 更小的安装包体积（按需裁剪运行时）
 
 ## 致谢

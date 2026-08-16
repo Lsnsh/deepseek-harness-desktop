@@ -34,6 +34,7 @@
 | Tray resident | Closing the window hides to the tray; the background service keeps running |
 | Auto-update | Silent check 3s after startup; "Check for Updates…" menu item; signed update manifests |
 | Session notifications | Polls the session store; notifies on `turn/end` with reason `completed`/`error` |
+| Plugin manager | Manage `dsh-plugin` topic plugins from GitHub: list/search/install/remove; pre-install manifest verification (`dsh.bundle`/`dsh.client`), install confirmation, and an audit log at `~/.dsh/desktop-audit.log` |
 | External links | GUI links open in the system browser; the window only ever visits the local service |
 | Error fallback | A dedicated error page when the bundled service fails to start; logs under the system log dir |
 
@@ -117,7 +118,7 @@ pnpm run signer-key
 - [x] macOS: development / CI / deployment / auto-update full loop
 - [ ] Notification click navigates to the finished **session**
 - [ ] Windows / Linux support
-- [ ] dsh plugin management (CRUD from the GitHub `dsh-plugin` topic)
+- [x] dsh plugin management (MVP: list/search/install/remove from the GitHub `dsh-plugin` topic, with pre-install manifest verification + audit log)
 - [ ] Smaller bundle (prune the runtime closure)
 
 ## Credits
