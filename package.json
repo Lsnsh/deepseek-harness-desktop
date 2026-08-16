@@ -1,28 +1,27 @@
 {
   "name": "deepseek-harness-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.0-beta.0",
   "type": "module",
   "packageManager": "pnpm@11.21.0",
+  "description": "DeepSeek Harness Developer Preview — a native desktop client for DeepSeek Harness, bundling its own Node.js runtime and the dsh web service.",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "runtime": "node scripts/assemble-runtime.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "icon": "bash scripts/gen-icons.sh",
+    "signer-key": "bash scripts/gen-signer-key.sh",
+    "tauri:dev": "pnpm run runtime && pnpm tauri dev",
+    "tauri:build": "pnpm run runtime && pnpm tauri build",
+    "check:upstream": "node scripts/check-upstream.mjs"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.1.0-rc.6",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "@deepseek-ai/dsh": "0.1.0-rc.6"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
-    "typescript": "~5.8.3",
     "vite": "^7.0.4"
   }
 }

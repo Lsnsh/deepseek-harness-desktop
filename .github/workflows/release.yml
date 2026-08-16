@@ -1,0 +1,238 @@
+# Build, sign, and publish the desktop client for macOS (the current internal
+# development target). The version must carry a `-beta` prerelease suffix —
+# stable versions are not published from this workflow.
+#
+# The release job assembles the updater manifest (latest.json) from the
+# signed updater archives and attaches it to the GitHub Release, which the
+# client's "Check for Updates…" and the startup check consume.
+#
+# Secrets (repository settings → Actions):
+#   TAURI_SIGNING_PRIVATE_KEY          contents of the private key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD the key password
+# (generate with: pnpm run signer-key)
+
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.1.0-beta.1); defaults to the package.json version. Must contain -beta.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve and validate the version
+        id: resolve
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            version="${{ github.event.inputs.version }}"
+          else
+            version="$(node -p "require('./package.json').version")"
+          fi
+          case "$version" in
+            *-beta*) ;;
+            *) echo "release: version must contain -beta (got $version)"; exit 1 ;;
+          esac
+          if ! echo "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-beta(\.[0-9]+)?)?$'; then
+            echo "release: version is not valid semver with a -beta prerelease: $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The bundled Node runtime is arch-specific (runtime.tar.gz carries
+          # one binary) and the updater resolves the manifest platform key at
+          # compile time (darwin-aarch64 / darwin-x86_64), so each arch ships
+          # its own app bundle, DMG, and updater archive.
+          - os: macos-14
+            arch: aarch64
+            artifact: desktop-macos-aarch64
+          - os: macos-15-intel
+            arch: x64
+            artifact: desktop-macos-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the shell frontend
+        run: pnpm build
+
+      - name: Assemble the bundled runtime
+        run: pnpm run runtime
+
+      - name: Smoke-test the assembled runtime
+        run: pnpm run smoke
+
+      - name: Write the updater config override
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          node -e "
+            const fs = require('node:fs');
+            fs.writeFileSync(
+              'tauri.release.config.json',
+              JSON.stringify({
+                version: process.env.VERSION,
+                plugins: {
+                  updater: {
+                    endpoints: ['https://github.com/' + process.env.REPO + '/releases/latest/download/latest.json'],
+                  },
+                },
+              }, null, 2),
+            );
+          "
+
+      - name: Build and sign bundles
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: >-
+          pnpm exec tauri build
+          --config "${{ github.workspace }}/tauri.release.config.json"
+          --bundles app,dmg
+
+      - name: Tag the updater archive with the arch
+        run: |
+          cd src-tauri/target/release/bundle/macos
+          mv "DeepSeek Harness Developer Preview.app.tar.gz" "DeepSeek Harness Developer Preview_${{ matrix.arch }}.app.tar.gz"
+          mv "DeepSeek Harness Developer Preview.app.tar.gz.sig" "DeepSeek Harness Developer Preview_${{ matrix.arch }}.app.tar.gz.sig"
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            src-tauri/target/release/bundle/
+            !src-tauri/target/release/bundle/macos/DeepSeek Harness Developer Preview.app/
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    if: ${{ always() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: target-release
+          merge-multiple: true
+
+      - name: Verify required assets
+        run: |
+          set -e
+          bundle="src-tauri/target/release/bundle"
+          mkdir -p "$bundle"
+          cp -R target-release/* "$bundle/"
+          check() { # <glob>
+            local found
+            found=$(find "$bundle" -name "$1" | head -1)
+            if [ -z "$found" ]; then echo "missing required asset: $1"; exit 1; fi
+            echo "ok: $found"
+          }
+          check '*_aarch64.dmg'
+          check '*_x64.dmg'
+          check '*_aarch64.app.tar.gz'
+          check '*_aarch64.app.tar.gz.sig'
+          check '*_x64.app.tar.gz'
+          check '*_x64.app.tar.gz.sig'
+
+      - name: Assemble the updater manifest
+        id: manifest
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          bundle="src-tauri/target/release/bundle"
+          base="https://github.com/$REPO/releases/download/$TAG"
+          darwin_sig_aarch64=$(cat "$(find "$bundle" -name '*_aarch64.app.tar.gz.sig' | head -1)")
+          darwin_sig_x64=$(cat "$(find "$bundle" -name '*_x64.app.tar.gz.sig' | head -1)")
+          # GitHub asset URLs percent-encode spaces ("DeepSeek Harness…").
+          darwin_url_aarch64=$(basename "$(find "$bundle" -name '*_aarch64.app.tar.gz' | head -1)")
+          darwin_url_x64=$(basename "$(find "$bundle" -name '*_x64.app.tar.gz' | head -1)")
+          darwin_url_aarch64="${darwin_url_aarch64// /%20}"
+          darwin_url_x64="${darwin_url_x64// /%20}"
+          pub_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq -n \
+            --arg version "$VERSION" \
+            --arg pub_date "$pub_date" \
+            --arg darwin_sig_aarch64 "$darwin_sig_aarch64" \
+            --arg darwin_url_aarch64 "$base/$darwin_url_aarch64" \
+            --arg darwin_sig_x64 "$darwin_sig_x64" \
+            --arg darwin_url_x64 "$base/$darwin_url_x64" \
+            '{version:$version, notes:"DeepSeek Harness Developer Preview", pub_date:$pub_date,
+              platforms:{
+                "darwin-aarch64":{signature:$darwin_sig_aarch64,url:$darwin_url_aarch64},
+                "darwin-x86_64":{signature:$darwin_sig_x64,url:$darwin_url_x64}
+              }}' > "$bundle/latest.json"
+          echo "latest.json:"
+          cat "$bundle/latest.json"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          bundle="src-tauri/target/release/bundle"
+          # Asset names contain spaces, so carry them as array elements, never
+          # as a space-joined string.
+          readarray -t assets < <(find "$bundle" -type f \
+            \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \))
+          notes="DeepSeek Harness Developer Preview — $VERSION
+
+          **注意：这是开发预览版本（beta），仅供内部开发与测试。**
+
+          - 内置 Node.js LTS 运行时与最新版 deepseek-harness（dsh web）
+          - 系统托盘 / 会话完成通知 / 自动更新
+          - 更新清单（latest.json）已附加，客户端启动时及菜单检查更新均会读取。"
+          gh release create "$TAG" "${assets[@]}" --title "$TAG" --notes "$notes" --prerelease
+          gh release upload "$TAG" "$bundle/latest.json" --clobber
+          echo "published $TAG"

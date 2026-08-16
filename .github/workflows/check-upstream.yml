@@ -1,0 +1,68 @@
+# Scheduled check for upstream @deepseek-ai/dsh releases. When the pinned
+# dependency falls behind the npm registry's `latest` dist-tag, this workflow
+# opens (or updates) a dependency-bump PR so CI validates the new harness
+# before it is merged. Run it manually with `workflow_dispatch`.
+
+name: check-upstream
+
+on:
+  schedule:
+    # Daily at 03:17 UTC — a little after the npm publish cadence.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Check for a newer @deepseek-ai/dsh
+        id: check
+        run: |
+          node scripts/check-upstream.mjs
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: No update available
+        if: steps.check.outputs.exit_code == '0'
+        run: echo "pinned dependency is up to date"
+
+      - name: Open or update the dependency-bump PR
+        if: steps.check.outputs.exit_code == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/check-upstream.mjs --apply
+          git config user.name "dsh-desktop[bot]"
+          git config user.email "dsh-desktop[bot]@users.noreply.github.com"
+          git checkout -b deps/dsh-upstream
+          git add package.json
+          git commit -m "deps: bump @deepseek-ai/dsh to $(node -p "require('./package.json').dependencies['@deepseek-ai/dsh']")" || true
+          git push -f origin deps/dsh-upstream
+          # Reuse an open PR if one exists.
+          existing=$(gh pr list --head deps/dsh-upstream --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body "Automated dependency bump for the scheduled upstream check." >/dev/null
+            echo "updated PR #$existing"
+          else
+            gh pr create \
+              --base main --head deps/dsh-upstream \
+              --title "deps: bump @deepseek-ai/dsh to $(node -p "require('./package.json').dependencies['@deepseek-ai/dsh']")" \
+              --body "Automated dependency bump for the scheduled upstream check." || true
+          fi

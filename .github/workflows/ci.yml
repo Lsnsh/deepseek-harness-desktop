@@ -1,0 +1,54 @@
+# CI: verify the frontend build, assemble the bundled runtime, and smoke-test
+# it exactly the way the desktop shell starts it. Runs on pushes to main and
+# on pull requests (including the automated dependency-bump PRs).
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the shell frontend
+        run: pnpm build
+
+      - name: Assemble the bundled runtime
+        run: pnpm run runtime
+
+      - name: Smoke-test the assembled runtime
+        run: pnpm run smoke
+
+      - name: Verify the Rust sources compile
+        run: |
+          cd src-tauri
+          cargo check --release
+
+      - name: Upload the runtime archive as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-linux-x64
+          path: resources/runtime.tar.gz
+          if-no-files-found: error
