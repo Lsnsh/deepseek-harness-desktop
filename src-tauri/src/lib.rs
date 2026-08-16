@@ -179,6 +179,7 @@ pub fn run() {
                 .min_inner_size(960.0, 640.0)
                 .center()
                 .resizable(true)
+                .initialization_script(INIT_JUMP_SCRIPT)
                 .on_navigation(navigation)
                 .build()
                 .map_err(|err| format!("dsh-desktop: failed to create the main window: {err}"))?;
@@ -187,10 +188,22 @@ pub fn run() {
             // restored from the tray icon (or the macOS dock icon). Quit via
             // the tray menu, or Cmd+Q on macOS.
             let window_for_close = window.clone();
+            let last_focus = app.state::<notify::NotifyState>().last_focus.clone();
             window.on_window_event(move |event| {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window_for_close.hide();
+                match event {
+                    WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let _ = window_for_close.hide();
+                    }
+                    WindowEvent::Focused(true) => {
+                        // Remember when the user last looked at the window, so
+                        // jump_to_last only jumps for genuinely unviewed
+                        // completion notifications.
+                        if let Ok(mut guard) = last_focus.lock() {
+                            *guard = Some(std::time::Instant::now());
+                        }
+                    }
+                    _ => {}
                 }
             });
             tray::build(app.handle())?;
@@ -216,8 +229,12 @@ pub fn run() {
     app.run(|app_handle, event| match event {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => {
-            // Dock icon clicked while the window is hidden: bring it back.
+            // Dock icon clicked (or a notification clicked — the platform
+            // reports both the same way) while the window is hidden: bring it
+            // back, and jump to the session that completed if there is an
+            // unviewed completion notification.
             tray::show_window(&app_handle);
+            notify::jump_to_last(&app_handle);
         }
         RunEvent::Exit => {
             if let Some(state) = app_handle.try_state::<ServerChild>() {
@@ -230,3 +247,25 @@ pub fn run() {
         _ => {}
     });
 }
+
+/// Runs before any page script on every page load (splash, error page, and
+/// the served GUI). When the URL carries `?jump=<sessionId>`, writes the
+/// dsh frontend's persisted current-session key (`dsh.sessions.current`) so
+/// the SPA opens that session on boot, then strips the query parameter.
+///
+/// The key name is the frontend's own data contract (verified in
+/// @deepseek-ai/dsh-client-runtime), not an internal hack; the desktop
+/// bundles a pinned frontend version, so the contract is stable.
+const INIT_JUMP_SCRIPT: &str = r#"
+(() => {
+  try {
+    const u = new URL(location.href);
+    const id = u.searchParams.get("jump");
+    if (id && (location.hostname === "127.0.0.1" || location.hostname === "localhost")) {
+      localStorage.setItem("dsh.sessions.current", JSON.stringify({ sessionId: id }));
+      u.searchParams.delete("jump");
+      history.replaceState(null, "", u);
+    }
+  } catch (e) { /* never break the page */ }
+})();
+"#;

@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -79,13 +79,26 @@ struct FileState {
 const FAILURE_BACKOFF_PASSES: u32 = 30; // 30 × 2s ≈ 1 minute of quiet
 
 /// Shared watcher state, owned by the app (see [`spawn`]).
+///
+/// `last_notified` records the most recent completion notification (session
+/// log path + when it fired); `last_focus` is updated by the window's
+/// Focused event. [`jump_to_last`] navigates to the completed session only
+/// when there is a notification the user has not yet seen (i.e. it fired
+/// after the window was last focused) — clicking the notification or the
+/// dock icon then lands on that conversation.
 pub struct NotifyState {
     files: Mutex<HashMap<PathBuf, FileState>>,
+    last_notified: Mutex<Option<(PathBuf, std::time::Instant)>>,
+    pub last_focus: Arc<Mutex<Option<std::time::Instant>>>,
 }
 
 impl Default for NotifyState {
     fn default() -> Self {
-        Self { files: Mutex::new(HashMap::new()) }
+        Self {
+            files: Mutex::new(HashMap::new()),
+            last_notified: Mutex::new(None),
+            last_focus: Arc::new(Mutex::new(None)),
+        }
     }
 }
 
@@ -258,6 +271,12 @@ fn notify_turn(app: &AppHandle, path: &Path, turn: CompletedTurn) {
         turn.turn,
         turn.seq
     );
+    // Remember this notification for jump_to_last (only the most recent one
+    // matters: clicking the notification should land on the latest finished
+    // session).
+    if let Ok(mut guard) = app.state::<NotifyState>().last_notified.lock() {
+        *guard = Some((path.to_path_buf(), std::time::Instant::now()));
+    }
     // The notification plugin's builder has no click callback in 2.x; on
     // macOS clicking a notification activates the app, which surfaces as
     // `RunEvent::Reopen` in lib.rs and shows/focuses the window there.
@@ -268,6 +287,62 @@ fn notify_turn(app: &AppHandle, path: &Path, turn: CompletedTurn) {
         .title(summary)
         .body(body)
         .show();
+}
+
+/// Navigate the main window to the session of the most recent completion
+/// notification — but only when that notification has not been seen yet
+/// (it fired after the window was last focused). Called from `RunEvent::Reopen`
+/// (macOS dock/notification click); a plain dock click with nothing new does
+/// nothing.
+pub fn jump_to_last(app: &AppHandle) {
+    let Some(origin) = server_origin(app) else {
+        return;
+    };
+    let state = app.state::<NotifyState>();
+    let (session_id, notified_at) = {
+        let guard = state.last_notified.lock().ok();
+        match guard.and_then(|g| g.clone()) {
+            Some((path, at)) => {
+                let id = path
+                    .parent()
+                    .and_then(|dir| dir.file_name())
+                    .map(|name| name.to_string_lossy().into_owned());
+                (id, Some(at))
+            }
+            None => (None, None),
+        }
+    };
+    let Some(session_id) = session_id else {
+        return;
+    };
+    let Some(notified_at) = notified_at else {
+        return;
+    };
+    // Only jump when the notification has not been seen yet (it fired after
+    // the window was last focused); a plain dock click with nothing new does
+    // nothing.
+    let seen = state
+        .last_focus
+        .lock()
+        .ok()
+        .and_then(|g| *g)
+        .is_some_and(|since| since > notified_at);
+    if seen {
+        return;
+    }
+    // Same origin as the served GUI, so the navigation fence in lib.rs lets
+    // it through; the initialization script picks up ?jump= on load.
+    let mut url = origin;
+    url.set_query(Some(&format!("jump={session_id}")));
+    if let Some(window) = app.get_webview_window("main") {
+        eprintln!("[dsh-desktop] jumping to session {session_id}");
+        let _ = window.navigate(url);
+    }
+}
+
+/// The current server origin, if the server has become ready.
+fn server_origin(app: &AppHandle) -> Option<tauri::Url> {
+    app.try_state::<crate::ServerOrigin>()?.0.lock().ok()?.clone()
 }
 
 /// The last `session/title` event's title in the log, if any. Bounded like
