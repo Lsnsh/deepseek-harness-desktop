@@ -56,6 +56,7 @@
     }
     button.secondary { background: rgba(255,255,255,.08); color: var(--fg); }
     button.danger { background: rgba(255,107,107,.15); color: var(--danger); }
+    button.armed { background: rgba(255,193,7,.22); color: var(--update); }
     button:disabled { opacity: .5; cursor: default; }
     .card {
       background: var(--panel);
@@ -256,19 +257,45 @@
       }
     }
 
+    // window.confirm is a silent no-op in the macOS WKWebView (wry installs
+    // no JS-dialog UI delegate), so confirmations use a two-step button:
+    // the first click arms the button, a second click within 4s proceeds,
+    // and the hint text (install warning / uninstall prompt) is shown in the
+    // log area while armed. No native dialogs involved.
+    function armButton(btn, idleLabel, armedLabel, hint, onConfirm) {
+      if (btn.dataset.armed !== '1') {
+        btn.dataset.armed = '1';
+        btn.textContent = armedLabel;
+        btn.classList.add('armed');
+        log(hint);
+        setTimeout(() => {
+          if (btn.dataset.armed === '1') {
+            btn.dataset.armed = '0';
+            btn.textContent = idleLabel;
+            btn.classList.remove('armed');
+          }
+        }, 4000);
+        return;
+      }
+      btn.dataset.armed = '0';
+      btn.textContent = idleLabel;
+      btn.classList.remove('armed');
+      onConfirm();
+    }
+
     function requestInstall(btn) {
       const fullName = btn.dataset.fullName;
       const stars = Number(btn.dataset.stars || 0).toLocaleString();
       const desc = btn.dataset.desc || '（无描述）';
-      const msg =
-        `确认安装 ${fullName}？\n\n` +
-        `⭐ Stars: ${stars}\n` +
-        `描述：${desc}\n\n` +
-        `⚠️ 警告：第三方代码将以本应用同等权限执行。\n` +
-        `安装前将校验该仓库的 package.json 是否声明 dsh.bundle / dsh.client 插件契约。\n\n` +
-        `点击「确定」继续安装。`;
-      if (!confirm(msg)) return;
-      install(fullName, btn);
+      armButton(
+        btn,
+        '安装',
+        '⚠ 再次点击确认安装',
+        `⚠️ 即将安装 ${fullName}（⭐ ${stars} · ${desc}）\n` +
+          `第三方代码将以本应用同等权限执行；安装前会校验该仓库 package.json 是否声明 dsh.bundle / dsh.client 插件契约。\n` +
+          `再次点击「⚠ 再次点击确认安装」开始安装。`,
+        () => install(fullName, btn),
+      );
     }
 
     async function install(spec, btn) {
@@ -293,8 +320,17 @@
       }
     }
 
-    async function uninstall(name, btn) {
-      if (!confirm(`确定卸载 ${name}？`)) return;
+    function uninstall(name, btn) {
+      armButton(
+        btn,
+        '卸载',
+        '⚠ 再次点击确认卸载',
+        `确定卸载 ${name}？再次点击「⚠ 再次点击确认卸载」执行。`,
+        () => doUninstall(name, btn),
+      );
+    }
+
+    async function doUninstall(name, btn) {
       btn.disabled = true;
       btn.textContent = '卸载中…';
       clearProgress();

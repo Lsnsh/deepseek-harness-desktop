@@ -554,6 +554,13 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 fn run_plugin_command_streaming(app: &AppHandle, args: &[&str], op: &str) -> Result<PluginCommandResult, String> {
     let (node_path, entry_path) = crate::server::runtime_binaries(app)?;
     let pnpm_shim_dir = pnpm_shim_dir(app)?;
+    // The web profile directory must exist before spawn: `current_dir()` fails
+    // with a cryptic "No such file or directory" on a machine where the
+    // profile was never booted yet. Creating it here lets the very first
+    // plugin operation proceed (dsh's own profile init then fills in the
+    // manifest).
+    create_dir_all(profile_dir())
+        .map_err(|err| format!("cannot create {}: {err}", profile_dir().display()))?;
     // dsh plugin spawns `pnpm` from PATH; prepend the shim directory.
     let mut path = pnpm_shim_dir.to_string_lossy().into_owned();
     if let Some(existing) = std::env::var_os("PATH") {
