@@ -27,9 +27,6 @@
 - 下一跳体积优化记录：运行时归档改用 `xz -9e` 可再省约 38%（41 MiB），
   但需要壳层解压命令支持 xz（`tar -xJf`；macOS/Linux/Windows bsdtar 均支持）
   ——留待下一轮决策。
-
-### 新增
-
 - **Developer ID 代码签名 + 公证**：应用以 `Developer ID Application:
   Apple Developer ID` 签名并经 App Store Connect 公证（CI 用 GitHub
   secrets 的 API key；本地构建用钥匙串 profile——全程无明文）。不上架

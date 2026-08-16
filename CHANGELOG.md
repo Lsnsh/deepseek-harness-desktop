@@ -31,9 +31,6 @@ prerelease suffix during development.
   `xz -9e` would save ~38% more (41 MiB) but requires the shell's
   extraction command to use xz (`tar -xJf`; macOS/Linux/Windows bsdtar
   all support it) — deliberately left for the next round.
-
-### Added
-
 - **Developer ID code signing + notarization**: the app is signed with
   `Developer ID (Apple Developer Program)` and notarized through
   App Store Connect (API-key credentials from GitHub secrets in CI; local

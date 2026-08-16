@@ -40,17 +40,36 @@ export function genReleaseNotes(version, lang) {
     return false
   }
   const tag = `v${version}`
-  const header = `# DeepSeek Harness Developer Preview ${tag} — ${lang === 'zh' ? '更新说明' : 'Release Notes'}\n\n`
+  const repo = 'https://github.com/Lsnsh/deepseek-harness-desktop'
+  const otherLang = lang === 'zh' ? 'en' : 'zh'
+  const prevVersion = previousVersion(version)
+  const asset = `DSH-DP_${tag}_macOS_aarch64`
+  const base = `${repo}/releases/download/${tag}`
+
+  // Header: title + one-line tagline with cross-language link, changelog
+  // link, and releases page link — no raw URLs, everything wrapped.
+  const header =
+    lang === 'zh'
+      ? `# DeepSeek Harness Developer Preview ${tag}\n\n> 🐳 All-in-one 原生桌面端 · 内置 Node.js LTS 与 deepseek-harness\n> [English](${tag}-${otherLang}.md) · [更新日志](../../CHANGELOG-zh.md) · [全部版本](../../README-zh.md#下载与安装)\n\n`
+      : `# DeepSeek Harness Developer Preview ${tag}\n\n> 🐳 All-in-one native desktop · bundles Node.js LTS and deepseek-harness\n> [中文](${tag}-${otherLang}.md) · [Changelog](../../CHANGELOG.md) · [Releases](../../README.md#download--install)\n\n`
+
+  // Footer: install links (complete) + related links, markdown-wrapped.
   const footer =
     lang === 'zh'
-      ? `\n---\n📦 下载：<https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/${tag}>\n`
-      : `\n---\n📦 Download: <https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/${tag}>\n`
-  const body = `${header}${section}${footer}\n`
+      ? `\n## 📦 安装包\n\n- **macOS · Apple Silicon**：安装包（DMG）[${asset}.dmg](${base}/${asset}.dmg) ｜ 自动更新包 [${asset}.app.tar.gz](${base}/${asset}.app.tar.gz)\n\n---\n[GitHub Release](${repo}/releases/tag/${tag}) · [代码仓库](${repo}) · [上一版本 ${prevVersion}](${repo}/compare/v${prevVersion}...${tag})\n`
+      : `\n## 📦 Downloads\n\n- **macOS · Apple Silicon**: installer (DMG) [${asset}.dmg](${base}/${asset}.dmg) ｜ updater package [${asset}.app.tar.gz](${base}/${asset}.app.tar.gz)\n\n---\n[GitHub Release](${repo}/releases/tag/${tag}) · [Repository](${repo}) · [Previous ${prevVersion}](${repo}/compare/v${prevVersion}...${tag})\n`
+  const body = `${header}${section}${footer}`
   mkdirSync(OUT_DIR, { recursive: true })
   const out = join(OUT_DIR, `${tag}-${lang}.md`)
   writeFileSync(out, body)
   console.log(`gen-release-notes: wrote ${out}`)
   return true
+}
+
+/** The version immediately before `version` (RELEASED_VERSIONS is newest first). */
+function previousVersion(version) {
+  const idx = RELEASED_VERSIONS.indexOf(version)
+  return idx >= 0 && idx + 1 < RELEASED_VERSIONS.length ? RELEASED_VERSIONS[idx + 1] : version
 }
 
 /** Released versions to (re)generate, newest first. */
