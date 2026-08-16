@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The bundled Node.js runs JIT-compiled JavaScript (V8), so the
+	     hardened runtime needs the allow-jit entitlement; without it a
+	     signed-but-hardened node crashes on first execution. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<!-- FFI addons (koffi) may need unsigned executable memory; harmless for
+	     the others. -->
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+</dict>
+</plist>

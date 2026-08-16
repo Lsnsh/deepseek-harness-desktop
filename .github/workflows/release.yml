@@ -91,8 +91,12 @@ jobs:
         # bundled node binary and drops dead weight (.map/.d.ts, node-pty
         # cross-platform prebuilds, READMEs/tests): ~97 MiB -> ~63 MiB.
         # strip + codesign run on the macOS runner (Xcode is preinstalled).
+        # APPLE_SIGNING_IDENTITY makes assemble-runtime.mjs sign every
+        # Mach-O inside the archive (required by Apple notarization, which
+        # unpacks it and rejects unsigned executables).
         env:
           DSH_DESKTOP_PRUNE: '1'
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: pnpm run runtime
 
       - name: Smoke-test the assembled runtime

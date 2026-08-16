@@ -17,6 +17,13 @@ INSTALL=1
 if [[ "${1:-}" == "--no-install" || "${2:-}" == "--no-install" ]]; then INSTALL=0; fi
 
 echo "==> [build-local] 装配运行时（prune=${PRUNE}）"
+# APPLE_SIGNING_IDENTITY: when set, assemble-runtime.mjs signs every Mach-O
+# in the archive (required for notarization); default to the Developer ID
+# identity from the keychain if not provided.
+if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  APPLE_SIGNING_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | grep -o 'Developer ID Application: [^(]*' | head -1 || true)"
+  export APPLE_SIGNING_IDENTITY
+fi
 if [[ "$PRUNE" == "1" ]]; then
   DSH_DESKTOP_PRUNE=1 pnpm run runtime
 else

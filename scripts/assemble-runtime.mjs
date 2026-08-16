@@ -26,7 +26,7 @@
 
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -355,6 +355,67 @@ export function hashTree(dir) {
 }
 
 /**
+ * Sign every Mach-O binary inside the runtime with the Developer ID
+ * identity (from `APPLE_SIGNING_IDENTITY`). Apple's notarization service
+ * unpacks the runtime archive and rejects ANY unsigned executable —
+ * including the bundled Node and the native addons (.node/.dylib) under
+ * node_modules. Tauri only signs the .app's own Mach-O, so this pass is
+ * required for notarized builds. Skipped when no identity is provided
+ * (plain dev/local builds without notarization).
+ *
+ * The Node binary gets the JIT entitlements (scripts/node.entitlements):
+ * the hardened runtime would otherwise kill V8 on first execution.
+ */
+export function signMachOs() {
+  const identity = process.env.APPLE_SIGNING_IDENTITY
+  if (process.platform !== 'darwin' || !identity) return
+  const entitlements = join(DESKTOP_ROOT, 'scripts', 'node.entitlements')
+  const files = []
+  const walk = (current) => {
+    let entries
+    try {
+      entries = readdirSync(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const path = join(current, entry.name)
+      if (entry.isDirectory()) walk(path)
+      else if (entry.isFile() && isMachO(path)) files.push(path)
+    }
+  }
+  walk(RUNTIME_DIR)
+  for (const file of files) {
+    const args = ['--force', '--options', 'runtime', '--timestamp']
+    if (file.endsWith(join('node', 'bin', nodeBinName())) || file.includes(join('node', 'bin'))) {
+      args.push('--entitlements', entitlements)
+    }
+    args.push('--sign', identity, file)
+    execFileSync('codesign', args, { stdio: 'inherit' })
+  }
+  console.log(`prune: signed ${files.length} Mach-O binaries (identity from APPLE_SIGNING_IDENTITY)`)
+}
+
+/** Whether a file is a Mach-O binary (magic sniff, big/little endian). */
+function isMachO(path) {
+  let fd
+  try {
+    fd = openSync(path, 'r')
+    const buf = Buffer.alloc(4)
+    const n = readSync(fd, buf, 0, 4, 0)
+    if (n !== 4) return false
+    const m = buf.readUInt32BE(0)
+    const mle = buf.readUInt32LE(0)
+    return m === 0xFEEDFACE || m === 0xFEEDFACF || m === 0xCAFEBABE || m === 0xCFFAEDFE
+      || mle === 0xFEEDFACE || mle === 0xFEEDFACF || mle === 0xCAFEBABE || mle === 0xCFFAEDFE
+  } catch {
+    return false
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+  }
+}
+
+/**
  * Assemble the full runtime. Idempotent: reruns replace app/ and re-verify
  * the node binary; downloads only happen when the binary is missing.
  */
@@ -365,6 +426,9 @@ export function assembleRuntime() {
   stripNodeBin(node)
   // pnpm for `dsh plugin` support (runs on the bundled Node).
   const pnpmEntry = downloadPnpm()
+  // Notarization requires every Mach-O in the archive to be signed; do this
+  // BEFORE the structural hash and the tar, so the cache key reflects it.
+  signMachOs()
   const modulesHash = hashTree(join(APP_DIR, 'node_modules'))
   writeFileSync(join(RUNTIME_DIR, 'manifest.json'), JSON.stringify({
     platform: `${process.platform}-${process.arch}`,
