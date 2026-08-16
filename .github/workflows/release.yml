@@ -40,6 +40,10 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
             version="${{ github.event.inputs.version }}"
+            pkg_version="$(node -p "require('./package.json').version")"
+            if [ "$version" != "$pkg_version" ]; then
+              echo "release: dispatch version $version differs from package.json ($pkg_version); continuing with $version"
+            fi
           else
             version="$(node -p "require('./package.json').version")"
           fi
