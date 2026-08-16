@@ -301,11 +301,15 @@ function relative(from, to) {
  */
 export function hashTree(dir) {
   const hash = createHash('sha256')
-  const walk = (current) => {
+  const walk = (current, root) => {
     let entries
     try {
       entries = readdirSync(current, { withFileTypes: true })
-    } catch {
+    } catch (error) {
+      // A missing/unreadable ROOT must fail loudly — a silent empty hash
+      // would poison the release cache key. Subdirectories that vanish mid-
+      // walk (pruning, concurrent edits) are skipped instead.
+      if (current === root) throw error
       return
     }
     for (const entry of entries) {
@@ -318,13 +322,13 @@ export function hashTree(dir) {
         continue
       }
       if (stat.isDirectory()) {
-        walk(path)
+        walk(path, root)
       } else if (stat.isFile()) {
         hash.update(relative(dir, path)).update('\0').update(String(stat.size)).update('\0')
       }
     }
   }
-  walk(dir)
+  walk(dir, dir)
   return hash.digest('hex')
 }
 
