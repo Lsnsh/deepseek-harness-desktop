@@ -8,6 +8,30 @@ prerelease suffix during development.
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.8] — 2026-08-16
+
+### Changed
+
+- **Runtime slim-down, round 2**: the bundled runtime archive drops to
+  ~66 MiB (from ~67.3 MiB) — OTel `build/esm`+`build/esnext` dual builds,
+  shiki `onig.wasm` (the JS regex engine is used), npm's
+  `.package-lock.json`, and gzip level 9 removed/raised. Smoke passes;
+  boot module trace unchanged (1117 files).
+- `verify-update` now also checks that the manifest signature's embedded
+  key id matches the configured updater pubkey (minisign has no built-in
+  verify subcommand; full content verification remains manual).
+
+### Added
+
+- `docs/platform-preflight.md` — Windows/Linux support preflight research:
+  per-file platform audit, 5 blocking items (pnpm.cmd shim, USERPROFILE
+  fallback, Linux tray, AppImage-only self-update, notification-click
+  activation), CI matrix plan (darwin/windows/linux), suggested order.
+- Notes for the next size jump: switching the runtime archive to
+  `xz -9e` would save ~38% more (41 MiB) but requires the shell's
+  extraction command to use xz (`tar -xJf`; macOS/Linux/Windows bsdtar
+  all support it) — deliberately left for the next round.
+
 ## [0.1.0-beta.7] — 2026-08-16
 
 ### Added
@@ -183,7 +207,8 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.7...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.8...HEAD
+[0.1.0-beta.8]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.6
 [0.1.0-beta.5]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.5
