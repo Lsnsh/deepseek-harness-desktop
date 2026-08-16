@@ -54,6 +54,12 @@ pub struct SearchCache {
 /// Process-global remote-version cache (full_name → (checked_at, latest tag)).
 static UPDATE_CACHE: OnceLock<Mutex<HashMap<String, (Instant, Option<String>)>>> = OnceLock::new();
 
+/// Process-global repo-metadata cache (full_name → (checked_at, RepoMeta)).
+/// Same TTL budget as the remote-version cache: the unauthenticated GitHub
+/// core API limit is 60 req/h, and the installed GitHub-sourced plugin set is
+/// small, so one fresh `/repos/{full_name}` per plugin per 10 min is plenty.
+static REPO_META_CACHE: OnceLock<Mutex<HashMap<String, (Instant, Option<RepoMeta>)>>> = OnceLock::new();
+
 /// A GitHub repository search result item.
 #[derive(Clone, Serialize)]
 pub struct GitHubRepo {
@@ -64,17 +70,34 @@ pub struct GitHubRepo {
     pub default_branch: String,
     pub pushed_at: Option<String>,
     pub topics: Vec<String>,
+    /// Owner avatar URL from the search item's `owner.avatar_url` (already in
+    /// the search response, so exposing it costs no extra API request).
+    pub avatar_url: Option<String>,
+}
+
+/// GitHub repository metadata for an installed, GitHub-sourced plugin,
+/// cached from `GET /repos/{full_name}` (description + owner avatar).
+#[derive(Clone, Serialize, Default)]
+pub struct RepoMeta {
+    pub description: Option<String>,
+    pub owner_avatar: Option<String>,
 }
 
 /// The manifest of the web profile: installed plugin dependencies, the active
-/// bundle layer list, each dependency's installed version, and the subset of
-/// GitHub-sourced plugins that have a newer remote release/tag.
+/// bundle layer list, each dependency's installed version, the subset of
+/// GitHub-sourced plugins that have a newer remote release/tag, and per-plugin
+/// GitHub metadata (description / owner avatar) for the installed list.
+///
+/// `repos` is additive: npm-sourced plugins (no recorded GitHub source) and
+/// plugins whose metadata fetch failed (rate limit / offline) simply have no
+/// entry — the frontend renders it as an optional decoration.
 #[derive(Serialize)]
 pub struct ProfileManifest {
     pub dependencies: Vec<String>,
     pub bundles: Vec<String>,
     pub versions: HashMap<String, String>,
     pub updates: Vec<String>,
+    pub repos: HashMap<String, RepoMeta>,
 }
 
 /// One plugin command's result (stdout + stderr + exit status).
@@ -204,11 +227,23 @@ pub fn list_plugins(_app: AppHandle) -> Result<ProfileManifest, String> {
         .map(|(name, _)| name.clone())
         .collect();
     updates.sort();
+    // GitHub repo metadata (description / owner avatar) for installed plugins
+    // whose install source was recorded. Fetches are cached; a failed fetch
+    // (rate limit / offline) just leaves that plugin without decoration.
+    let mut repos = HashMap::new();
+    for (name, full_name) in &sources {
+        if names.iter().any(|n| n == name) {
+            if let Some(meta) = repo_meta(full_name) {
+                repos.insert(name.clone(), meta);
+            }
+        }
+    }
     Ok(ProfileManifest {
         dependencies: names,
         bundles,
         versions,
         updates,
+        repos,
     })
 }
 
@@ -252,6 +287,11 @@ pub fn search_plugins(app: AppHandle, query: Option<String>, page: Option<u32>) 
             topics: item.get("topics").and_then(|t| t.as_array()).map(|arr| {
                 arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
             }).unwrap_or_default(),
+            avatar_url: item
+                .get("owner")
+                .and_then(|o| o.get("avatar_url"))
+                .and_then(|a| a.as_str())
+                .map(String::from),
         });
     }
     let mut guard = cache.entries.lock().map_err(|_| "search cache poisoned".to_string())?;
@@ -413,6 +453,44 @@ fn fetch_latest_tag(full_name: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Repository metadata (description + owner avatar) for one GitHub repo,
+/// cached per repo for `UPDATE_CACHE_TTL`. `None` on a failed fetch (rate
+/// limit, offline, invalid JSON) — callers treat it as "no decoration".
+fn repo_meta(full_name: &str) -> Option<RepoMeta> {
+    let cache = REPO_META_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    {
+        if let Ok(guard) = cache.lock() {
+            if let Some((at, cached)) = guard.get(full_name) {
+                if at.elapsed() < UPDATE_CACHE_TTL {
+                    return cached.clone();
+                }
+            }
+        }
+    }
+    let meta = fetch_repo_meta(full_name);
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(full_name.to_string(), (Instant::now(), meta.clone()));
+    }
+    meta
+}
+
+/// `GET /repos/{full_name}` — the same endpoint `resolve_default_branch`
+/// probes, so it doubles as a cheap existence check; only the fields the
+/// installed list needs are kept.
+fn fetch_repo_meta(full_name: &str) -> Option<RepoMeta> {
+    let url = format!("https://api.github.com/repos/{full_name}");
+    let body = http_get(&url).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&body).ok()?;
+    Some(RepoMeta {
+        description: json.get("description").and_then(|d| d.as_str()).map(String::from),
+        owner_avatar: json
+            .get("owner")
+            .and_then(|o| o.get("avatar_url"))
+            .and_then(|a| a.as_str())
+            .map(String::from),
+    })
 }
 
 /// `remote` is "newer" than `local` when its numeric version segments sort

@@ -67,6 +67,14 @@
       align-items: center;
       gap: 12px;
     }
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      flex: none;
+      object-fit: cover;
+      background: rgba(255,255,255,.06);
+    }
     .card .meta { flex: 1; min-width: 0; }
     .card .name { font-weight: 600; font-size: 14px; }
     .card .desc { color: var(--muted); font-size: 12.5px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -156,15 +164,30 @@
         }
         el.className = '';
         el.innerHTML = '';
+        const repoMeta = m.repos || {};
         for (const name of names) {
           const card = document.createElement('div');
           card.className = 'card';
+          // Optional GitHub decoration (only for GitHub-sourced plugins):
+          // owner avatar + repo description. Absent entries render nothing.
+          const metaData = repoMeta[name] || {};
+          if (metaData.owner_avatar) {
+            const img = document.createElement('img');
+            img.className = 'avatar';
+            img.src = metaData.owner_avatar;
+            img.alt = '';
+            img.referrerPolicy = 'no-referrer';
+            card.appendChild(img);
+          }
           const meta = document.createElement('div');
           meta.className = 'meta';
           let nameHtml = `<div class="name">${esc(name)}`;
           if (versions[name]) nameHtml += `<span class="ver">v${esc(versions[name])}</span>`;
           if (updates.includes(name)) nameHtml += `<span class="badge update">有更新</span>`;
           nameHtml += '</div>';
+          if (metaData.description) {
+            nameHtml += `<div class="desc">${esc(metaData.description)}</div>`;
+          }
           meta.innerHTML = nameHtml;
           const badge = document.createElement('span');
           badge.className = 'badge installed';
@@ -197,6 +220,16 @@
         for (const r of repos) {
           const card = document.createElement('div');
           card.className = 'card';
+          // Owner avatar rides along in the search response (zero extra API
+          // calls); render it when present.
+          if (r.avatar_url) {
+            const img = document.createElement('img');
+            img.className = 'avatar';
+            img.src = r.avatar_url;
+            img.alt = '';
+            img.referrerPolicy = 'no-referrer';
+            card.appendChild(img);
+          }
           const desc = r.description || '（无描述）';
           const meta = document.createElement('div');
           meta.className = 'meta';
