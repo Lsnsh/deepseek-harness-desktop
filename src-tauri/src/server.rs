@@ -48,7 +48,7 @@ enum ServerEvent {
 /// tree. Release builds ship one gzip archive (`runtime.tar.gz`): the archive
 /// is extracted to the app cache on first launch and reused while the
 /// archive's structural hash matches (see manifest.json).
-fn runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
     #[cfg(debug_assertions)]
     {
         let _ = app;
@@ -137,7 +137,7 @@ fn archive_manifest_key(archive: &std::path::Path) -> Result<String, String> {
 }
 
 /// The bundled Node.js binary and the deployed CLI entry.
-fn runtime_binaries(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
+pub(crate) fn runtime_binaries(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
     let runtime = runtime_dir(app)?;
     let manifest_path = runtime.join("manifest.json");
     let (node_rel, entry_rel) = if manifest_path.is_file() {

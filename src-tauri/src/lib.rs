@@ -9,6 +9,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod notify;
+mod plugins;
 mod server;
 mod tray;
 mod updater;
@@ -109,9 +110,48 @@ fn restart_server(app: &AppHandle) {
     }
 }
 
+/// Open (or focus) the plugin manager window — a local page with full IPC,
+/// unlike the remote-origin harness GUI.
+fn open_plugin_manager(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("plugins") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return;
+    }
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    // Local pages are fine; remote links leave via the system browser (same
+    // fence as the main window).
+    let handle = app.clone();
+    let navigation = move |url: &Url| {
+        if is_local_app_page(url) {
+            return true;
+        }
+        if url.scheme() == "http" || url.scheme() == "https" {
+            let h = handle.clone();
+            let target = url.clone();
+            std::thread::spawn(move || {
+                let _ = h.opener().open_url(target.as_str(), None::<&str>);
+            });
+        }
+        false
+    };
+    if let Ok(window) = WebviewWindowBuilder::new(app, "plugins", WebviewUrl::App("plugins.html".into()))
+        .title("Plugin Manager — DeepSeek Harness")
+        .inner_size(900.0, 640.0)
+        .min_inner_size(700.0, 480.0)
+        .center()
+        .on_navigation(navigation)
+        .build()
+    {
+        let _ = window;
+    }
+}
+
 /// The user's home directory, used as the server's working directory so the
 /// default file-sandbox workspace root is meaningful for GUI launches.
-pub fn run() {    let app = tauri::Builder::default()
+pub fn run() {
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -129,6 +169,7 @@ pub fn run() {    let app = tauri::Builder::default()
             let about = MenuItem::with_id(handle, "about", "About DeepSeek Harness", true, None::<&str>)?;
             let check = MenuItem::with_id(handle, "check_update", "Check for Updates…", true, None::<&str>)?;
             let restart = MenuItem::with_id(handle, "restart_server", "Restart Web Server", true, None::<&str>)?;
+            let plugins_menu_item = MenuItem::with_id(handle, "plugin_manager", "Plugin Manager…", true, None::<&str>)?;
             let app_menu = Submenu::with_items(
                 handle,
                 "DeepSeek Harness",
@@ -137,6 +178,7 @@ pub fn run() {    let app = tauri::Builder::default()
                     &about,
                     &check,
                     &restart,
+                    &plugins_menu_item,
                     &PredefinedMenuItem::separator(handle)?,
                     &PredefinedMenuItem::quit(handle, None)?,
                 ],
@@ -166,11 +208,19 @@ pub fn run() {    let app = tauri::Builder::default()
             "check_update" => updater::check_for_updates(app.clone(), true),
             "about" => show_about(&app),
             "restart_server" => restart_server(&app),
+            "plugin_manager" => open_plugin_manager(&app),
             _ => {}
         })
         .manage(ServerChild::default())
         .manage(ServerOrigin::default())
         .manage(notify::NotifyState::default())
+        .manage(plugins::SearchCache::default())
+        .invoke_handler(tauri::generate_handler![
+            plugins::list_plugins,
+            plugins::search_plugins,
+            plugins::install_plugin,
+            plugins::uninstall_plugin,
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
             let origin_state = app.state::<ServerOrigin>().0.clone();
