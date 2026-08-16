@@ -31,7 +31,7 @@
 ### 新增
 
 - **Developer ID 代码签名 + 公证**：应用以 `Developer ID Application:
-  Apple Developer ID (APPLE_TEAM_ID_PLACEHOLDER)` 签名并经 App Store Connect 公证（CI 用 GitHub
+  Apple Developer ID` 签名并经 App Store Connect 公证（CI 用 GitHub
   secrets 的 API key；本地构建用钥匙串 profile——全程无明文）。不上架
   App Store。Bundle identifier 改为 `site.lsnsh.deepseek-harness-desktop`。
 - **按版本 Release notes**：`docs/release-notes/v<ver>-{zh,en}.md` 由

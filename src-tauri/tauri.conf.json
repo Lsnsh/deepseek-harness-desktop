@@ -31,8 +31,7 @@
       "../resources/runtime.tar.gz"
     ],
     "macOS": {
-      "minimumSystemVersion": "10.15",
-      "signingIdentity": "Developer ID Application: Apple Developer ID (APPLE_TEAM_ID_PLACEHOLDER)"
+      "minimumSystemVersion": "10.15"
     }
   },
   "plugins": {

@@ -35,7 +35,7 @@ prerelease suffix during development.
 ### Added
 
 - **Developer ID code signing + notarization**: the app is signed with
-  `Developer ID Application: Apple Developer ID (APPLE_TEAM_ID_PLACEHOLDER)` and notarized through
+  `Developer ID (Apple Developer Program)` and notarized through
   App Store Connect (API-key credentials from GitHub secrets in CI; local
   builds notarize via the Keychain profile — no plaintext anywhere).
   Not on the App Store. Bundle identifier set to

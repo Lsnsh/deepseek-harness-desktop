@@ -134,7 +134,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: "Developer ID Application: Apple Developer ID (APPLE_TEAM_ID_PLACEHOLDER)"
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_ISSUER_ID }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_P8 }}
           APPLE_API_KEY_PATH: /tmp/apple_api_key.p8
