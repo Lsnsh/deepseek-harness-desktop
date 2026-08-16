@@ -51,6 +51,31 @@
       }
       @keyframes spin { to { transform: rotate(360deg); } }
       .hint { margin-top: 14px; font-size: 11.5px; color: rgba(139, 160, 184, 0.7); }
+      #conflict { display: none; text-align: left; max-width: 460px; margin: 0 auto; }
+      #conflict .card {
+        background: rgba(17, 26, 46, 0.92);
+        border: 1px solid rgba(255, 193, 7, 0.45);
+        border-radius: 14px;
+        padding: 20px 22px;
+      }
+      #conflict h2 { font-size: 15px; font-weight: 600; margin: 0 0 6px; color: #ffc107; }
+      #conflict p { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; line-height: 1.6; }
+      #conflict .port { color: var(--fg); font-weight: 600; }
+      #conflict .actions { display: flex; gap: 10px; }
+      #conflict button {
+        flex: 1;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #conflict .take { background: var(--accent); color: #fff; }
+      #conflict .attach { background: rgba(255, 255, 255, 0.08); color: var(--fg); }
+      #conflict button:disabled { opacity: 0.5; cursor: default; }
+      #conflict .err { color: #ff6b6b; font-size: 12px; margin-top: 10px; min-height: 14px; }
+      #conflict .warn { color: rgba(255, 193, 7, 0.9); font-size: 11.5px; margin: 0 0 10px; }
     </style>
   </head>
   <body>
@@ -67,6 +92,87 @@
         <span>正在启动本地服务…</span>
       </div>
       <div class="hint">首次启动需要解压内置运行时，请稍候</div>
+
+      <div id="conflict">
+        <div class="card">
+          <h2>检测到运行中的 dsh web</h2>
+          <p>
+            已在端口 <span class="port" id="conflictPort"></span> 发现您自行启动的
+            dsh web 服务。两个 dsh 进程共享 <code>~/.dsh</code> 会话存储，同时运行
+            可能导致会话损坏。请选择处理方式：
+          </p>
+          <p class="warn">⚠️ Attach 模式下应用将作为浏览器连接您的 dsh；接管会终止该 dsh 进程。</p>
+          <div class="actions">
+            <button class="take" id="takeBtn" onclick="takeOver()">接管（Take Over）</button>
+            <button class="attach" id="attachBtn" onclick="attachTo()">Attach（监听模式）</button>
+          </div>
+          <div class="err" id="conflictErr"></div>
+        </div>
+      </div>
     </div>
+
+    <script>
+      const invoke = window.__TAURI__.core.invoke;
+      const statusEl = document.querySelector('.status');
+      const hintEl = document.querySelector('.hint');
+      const conflictEl = document.getElementById('conflict');
+      const conflictErr = document.getElementById('conflictErr');
+
+      function showLoading(text) {
+        conflictEl.style.display = 'none';
+        statusEl.style.display = '';
+        hintEl.style.display = '';
+        if (text) hintEl.textContent = text;
+      }
+      function showConflict(port) {
+        statusEl.style.display = 'none';
+        hintEl.style.display = 'none';
+        document.getElementById('conflictPort').textContent = port;
+        conflictEl.style.display = '';
+      }
+      function setBusy(busy) {
+        document.getElementById('takeBtn').disabled = busy;
+        document.getElementById('attachBtn').disabled = busy;
+      }
+
+      async function takeOver() {
+        const port = Number(document.getElementById('conflictPort').textContent);
+        conflictErr.textContent = '';
+        setBusy(true);
+        try {
+          await invoke('take_over', { port });
+          showLoading('正在启动本地服务…');
+        } catch (e) {
+          conflictErr.textContent = '接管失败：' + e;
+          setBusy(false);
+        }
+      }
+
+      async function attachTo() {
+        const port = Number(document.getElementById('conflictPort').textContent);
+        conflictErr.textContent = '';
+        setBusy(true);
+        try {
+          await invoke('attach', { port });
+          // 成功后由 Rust 端导航窗口，这里无需处理。
+        } catch (e) {
+          conflictErr.textContent = '连接失败：' + e;
+          setBusy(false);
+        }
+      }
+
+      (async () => {
+        try {
+          const info = await invoke('check_conflict');
+          if (info && info.has_conflict && info.port) {
+            showConflict(info.port);
+          }
+          // 无冲突：保持现有加载动画。
+        } catch (e) {
+          // IPC 不可用等异常：保持加载动画，不阻塞启动。
+          console.error('conflict check failed:', e);
+        }
+      })();
+    </script>
   </body>
 </html>

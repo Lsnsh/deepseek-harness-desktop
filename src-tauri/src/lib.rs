@@ -89,17 +89,10 @@ fn show_about(app: &AppHandle) {
 /// removing plugins, whose bundle layers are composed at boot). The window
 /// returns to the splash until the new server is ready.
 fn restart_server(app: &AppHandle) {
-    if let Some(mut child) = app.state::<ServerChild>().0.lock().unwrap().take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    *app.state::<ServerOrigin>().0.lock().unwrap() = None;
-    match server::spawn_server(app) {
-        Ok(spawned) => {
-            *app.state::<ServerChild>().0.lock().unwrap() = Some(spawned.child);
+    match spawn_and_watch(app) {
+        Ok(()) => {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.navigate(local_app_url("index.html"));
-                server::watch_server(app.clone(), window);
             }
         }
         Err(err) => {
@@ -108,6 +101,29 @@ fn restart_server(app: &AppHandle) {
                 let _ = window.navigate(local_app_url("error.html"));
             }
         }
+    }
+}
+
+/// Kill any existing bundled server, spawn a fresh one, and hand it to the
+/// supervisor (which navigates the window once the readiness URL is up).
+/// Shared by the normal launch, the "Restart Web Server" menu action, and the
+/// conflict "Take Over" flow.
+pub(crate) fn spawn_and_watch(app: &AppHandle) -> Result<(), String> {
+    if let Some(mut child) = app.state::<ServerChild>().0.lock().unwrap().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    *app.state::<ServerOrigin>().0.lock().unwrap() = None;
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+    match server::spawn_server(app) {
+        Ok(spawned) => {
+            *app.state::<ServerChild>().0.lock().unwrap() = Some(spawned.child);
+            server::watch_server(app.clone(), window);
+            Ok(())
+        }
+        Err(err) => Err(err),
     }
 }
 
@@ -222,6 +238,9 @@ pub fn run() {
             plugins::search_plugins,
             plugins::install_plugin,
             plugins::uninstall_plugin,
+            server::check_conflict,
+            server::take_over,
+            server::attach,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -287,15 +306,9 @@ pub fn run() {
                 }
             });
             tray::build(app.handle())?;
-            match server::spawn_server(&handle) {
-                Ok(spawned) => {
-                    *app.state::<ServerChild>().0.lock().unwrap() = Some(spawned.child);
-                    server::watch_server(handle.clone(), window);
-                }
-                Err(err) => {
-                    eprintln!("[dsh-desktop] failed to start the web server: {err}");
-                    let _ = window.navigate(local_app_url("error.html"));
-                }
+            if let Err(err) = spawn_and_watch(&handle) {
+                eprintln!("[dsh-desktop] failed to start the web server: {err}");
+                let _ = window.navigate(local_app_url("error.html"));
             }
             // Session-completion notifications (background poller).
             notify::spawn(handle.clone());

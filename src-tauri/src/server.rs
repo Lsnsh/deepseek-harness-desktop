@@ -7,6 +7,15 @@
 //! (`dsh web: http://127.0.0.1:<port>`) from its stdout, polls the served
 //! root, and navigates the window there. Server output is mirrored to a log
 //! file under the platform app-log directory for support.
+//!
+//! Conflict guard (beta.9): if the user already launched their own `dsh web`
+//! (e.g. from a terminal), two dsh processes would share `~/.dsh` and a
+//! running session could be corrupted. [`check_conflict`] scans `ps` for a
+//! user-launched dsh web (excluding this process and the server the shell
+//! itself spawned) and probes its port for dsh's HTML signature;
+//! [`take_over`] kills that process and starts the bundled server, while
+//! [`attach`] validates the port and navigates the window to the user's dsh
+//! (browser mode) without spawning anything.
 
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -17,6 +26,7 @@ use std::sync::mpsc::{channel, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
 use tauri::{AppHandle, Manager, Url, WebviewWindow};
 
 use crate::{local_app_url, ServerChild, ServerOrigin};
@@ -28,6 +38,12 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
 const UNRESPONSIVE_TIMEOUT: Duration = Duration::from_secs(15);
 /// Poll interval while waiting for the URL line / server health.
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// dsh web's default port when none is passed on the command line.
+const DEFAULT_DSH_PORT: u16 = 3080;
+/// How long to wait for a taken-over dsh web process to exit before giving up.
+const TAKE_OVER_WAIT: Duration = Duration::from_secs(5);
+/// Cap for the HTTP probe body (enough to find the HTML signature).
+const PROBE_BODY_LIMIT: usize = 262_144;
 
 /// A spawned server: the child handle (owned by [`ServerChild`] state).
 pub struct SpawnedServer {
@@ -412,4 +428,256 @@ fn http_get_ok(url: &Url) -> bool {
     let head = String::from_utf8_lossy(&head[..n]);
     let status = head.split_whitespace().nth(1).unwrap_or("");
     status.starts_with('2') || status.starts_with('3')
+}
+
+/// Startup conflict scan result.
+#[derive(Serialize)]
+pub struct ConflictInfo {
+    pub has_conflict: bool,
+    pub port: Option<u16>,
+}
+
+/// Scan for a user-launched `dsh web` that shares the `~/.dsh` session store,
+/// excluding this process and any server the desktop shell itself spawned
+/// (which uses `--port 0` and is tracked in [`ServerChild`]). The candidate's
+/// port comes from its command line (`--port N`) or defaults to 3080, and is
+/// only reported as a conflict after the root answers with dsh's HTML
+/// signature — so a random process named "dsh" cannot trip the guard.
+#[tauri::command]
+pub fn check_conflict(app: AppHandle) -> Result<ConflictInfo, String> {
+    let own_pid = std::process::id();
+    let spawned_pid = app
+        .state::<ServerChild>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|child| child.id()));
+    for (pid, command) in list_processes()? {
+        if pid as u32 == own_pid || Some(pid as u32) == spawned_pid {
+            continue;
+        }
+        if !is_dsh_web_command(&command) {
+            continue;
+        }
+        let port = port_from_command(&command).unwrap_or(DEFAULT_DSH_PORT);
+        if probe_dsh(port) {
+            return Ok(ConflictInfo { has_conflict: true, port: Some(port) });
+        }
+    }
+    Ok(ConflictInfo { has_conflict: false, port: None })
+}
+
+/// Take over: kill the user's `dsh web` on `port` (and only dsh web processes
+/// on that port — never anything else), then start the bundled server and
+/// watch it exactly like a normal launch.
+#[tauri::command]
+pub fn take_over(app: AppHandle, port: u16) -> Result<(), String> {
+    kill_dsh_on_port(&app, port)?;
+    crate::spawn_and_watch(&app)
+}
+
+/// Attach (browser mode): verify `port` really serves dsh, remember it as the
+/// navigation origin, and point the window at it without spawning a server.
+/// The navigation fence in lib.rs already allows this origin once
+/// [`ServerOrigin`] is set, so external links still leave via the browser.
+#[tauri::command]
+pub fn attach(app: AppHandle, port: u16) -> Result<(), String> {
+    let url_text = format!("http://127.0.0.1:{port}/");
+    let body = http_get_body(&url_text)?;
+    if !looks_like_dsh(&body) {
+        return Err(format!(
+            "端口 {port} 上运行的服务不是 dsh web（缺少 dsh 页面特征），已拒绝连接"
+        ));
+    }
+    let url: Url = url_text
+        .parse()
+        .map_err(|err| format!("invalid attach URL {url_text}: {err}"))?;
+    *app.state::<ServerOrigin>().0.lock().unwrap() = Some(url.clone());
+    // Attach mode owns no server child; drop any (should not exist) and never
+    // touch the user's process.
+    if let Some(mut child) = app.state::<ServerChild>().0.lock().unwrap().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+    window
+        .navigate(url)
+        .map_err(|err| format!("无法导航到 {url_text}: {err}"))?;
+    Ok(())
+}
+
+/// `(pid, command)` for every process, via `ps -axo pid=,command=`.
+fn list_processes() -> Result<Vec<(i32, String)>, String> {
+    let output = Command::new("ps")
+        .args(["-axo", "pid=,command="])
+        .output()
+        .map_err(|err| format!("cannot list processes: {err}"))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut processes = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(2, char::is_whitespace);
+        let Some(pid) = parts.next().and_then(|part| part.trim().parse::<i32>().ok()) else {
+            continue;
+        };
+        processes.push((pid, parts.next().unwrap_or("").trim().to_string()));
+    }
+    Ok(processes)
+}
+
+/// Whether a process command line looks like a user-launched `dsh web`
+/// (`dsh web …` or `… --profile web …`). The desktop shell's own server runs
+/// `node …/bin.js --profile web` and is excluded by PID in [`check_conflict`],
+/// so the `dsh` token requirement mainly matches `dsh web` on PATH.
+fn is_dsh_web_command(command: &str) -> bool {
+    command.contains("dsh")
+        && (command.contains("--profile web")
+            || command.contains(" web ")
+            || command.trim_end().ends_with(" web"))
+}
+
+/// Parse `--port N` / `--port=N` from a command line.
+fn port_from_command(command: &str) -> Option<u16> {
+    let tokens: Vec<&str> = command.split_whitespace().collect();
+    for (index, token) in tokens.iter().enumerate() {
+        if *token == "--port" {
+            if let Some(next) = tokens.get(index + 1) {
+                if let Ok(port) = next.parse() {
+                    return Some(port);
+                }
+            }
+        } else if let Some(value) = token.strip_prefix("--port=") {
+            if let Ok(port) = value.parse() {
+                return Some(port);
+            }
+        }
+    }
+    None
+}
+
+/// Whether `http://127.0.0.1:<port>/` answers with dsh's HTML signature.
+fn probe_dsh(port: u16) -> bool {
+    let url = format!("http://127.0.0.1:{port}/");
+    http_get_body(&url).map(|body| looks_like_dsh(&body)).unwrap_or(false)
+}
+
+/// dsh's served index carries the React mount point and the boot marker.
+fn looks_like_dsh(body: &str) -> bool {
+    body.contains("__DSH_BOOT__") || body.contains("<div id=\"root\"")
+}
+
+/// Minimal HTTP GET returning the (first 256 KiB of the) response body.
+fn http_get_body(url: &str) -> Result<String, String> {
+    let parsed: Url = url
+        .parse()
+        .map_err(|err| format!("invalid URL {url}: {err}"))?;
+    let host = parsed.host_str().unwrap_or("127.0.0.1").to_string();
+    let port = parsed.port().unwrap_or(80);
+    let mut stream = TcpStream::connect((host.as_str(), port))
+        .map_err(|err| format!("cannot connect {url}: {err}"))?;
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(3)));
+    let request = format!("GET / HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|err| format!("request to {url} failed: {err}"))?;
+    let mut body = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                body.extend_from_slice(&chunk[..n]);
+                if body.len() > PROBE_BODY_LIMIT {
+                    break;
+                }
+            }
+            Err(err)
+                if err.kind() == std::io::ErrorKind::WouldBlock
+                    || err.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                break;
+            }
+            Err(err) => return Err(format!("read from {url} failed: {err}")),
+        }
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
+/// Kill the dsh web process(es) listening on `port`. Guards: only kills
+/// processes whose command line matches dsh web, never the current process or
+/// a server this app spawned. Waits up to [`TAKE_OVER_WAIT`] for exit.
+fn kill_dsh_on_port(app: &AppHandle, port: u16) -> Result<(), String> {
+    let output = Command::new("lsof")
+        .args(["-ti", &format!("tcp:{port}")])
+        .output()
+        .map_err(|err| format!("cannot inspect port {port}: {err}"))?;
+    let pids: Vec<i32> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .collect();
+    if pids.is_empty() {
+        return Err(format!("端口 {port} 上未发现任何进程，已中止接管"));
+    }
+    let own_pid = std::process::id();
+    let spawned_pid = app
+        .state::<ServerChild>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|child| child.id()));
+    let mut targets = Vec::new();
+    for pid in &pids {
+        if *pid as u32 == own_pid || Some(*pid as u32) == spawned_pid {
+            return Err(format!("端口 {port} 上的进程 (PID {pid}) 是桌面端自身，已中止接管"));
+        }
+        let command = process_command(*pid).unwrap_or_default();
+        if !is_dsh_web_command(&command) {
+            return Err(format!(
+                "端口 {port} 上的进程 (PID {pid}) 不是 dsh web（{command}），已中止接管"
+            ));
+        }
+        targets.push(*pid);
+    }
+    for pid in &targets {
+        eprintln!("[dsh-desktop] taking over: terminating user dsh web (PID {pid}) on port {port}");
+        let _ = Command::new("kill").arg(pid.to_string()).status();
+    }
+    let deadline = Instant::now() + TAKE_OVER_WAIT;
+    while Instant::now() < deadline {
+        if !targets.iter().any(|pid| process_exists(*pid)) {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+    Err(format!(
+        "端口 {port} 上的 dsh web 进程（PID {targets:?}）未能按时退出，已中止接管"
+    ))
+}
+
+/// The command line of a PID (empty when it no longer exists).
+fn process_command(pid: i32) -> Option<String> {
+    let output = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    Some(text.trim().to_string())
+}
+
+/// Whether a PID still exists (`kill -0`).
+fn process_exists(pid: i32) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
