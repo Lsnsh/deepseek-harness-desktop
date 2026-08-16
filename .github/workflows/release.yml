@@ -169,7 +169,7 @@ jobs:
         run: >-
           pnpm exec tauri build
           --config "${{ github.workspace }}/tauri.release.config.json"
-          --bundles app,dmg
+          --bundles dmg
 
       - name: Rename assets to the DSH-DP convention
         # DSH-DP_{version}_{os}_{arch}.{ext} — short names that keep the
@@ -276,7 +276,7 @@ jobs:
 
           注意：这是开发预览版本（beta），仅供内部开发与测试。
 
-          Full Changelog: ${prev_tag}...${TAG}"
+          Full Changelog: [${prev_tag}...${TAG}](https://github.com/$GITHUB_REPOSITORY/compare/${prev_tag}...${TAG})"
           gh release create "$TAG" "${assets[@]}" --title "$TAG" --notes "$notes" --prerelease
           gh release upload "$TAG" "$bundle/latest.json" --clobber
           # Every version is a prerelease, and GitHub refuses to mark a

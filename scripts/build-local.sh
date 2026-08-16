@@ -44,7 +44,7 @@ if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
 fi
 # Developer ID code signing is configured in tauri.conf.json
 # (bundle.macOS.signingIdentity), so the app is signed automatically.
-pnpm exec tauri build --bundles app,dmg
+pnpm exec tauri build --bundles dmg
 
 APP="src-tauri/target/release/bundle/macos/DeepSeek Harness Developer Preview.app"
 if [[ ! -d "$APP" ]]; then

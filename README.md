@@ -40,7 +40,7 @@
 
 ## Download & install
 
-Grab the DMG (or .app) from the [Releases](https://github.com/Lsnsh/deepseek-harness-desktop/releases) page (Apple Silicon builds).
+Grab the DMG from the [Releases](https://github.com/Lsnsh/deepseek-harness-desktop/releases) page (Apple Silicon builds).
 
 > macOS builds are unsigned/un-notarized: on first launch allow the app in **System Settings → Privacy & Security**, or right-click → Open.
 
@@ -52,7 +52,7 @@ pnpm run runtime                      # assemble the bundled runtime (downloads 
 DSH_DESKTOP_PRUNE=1 pnpm run runtime  # same, but prune dead weight first (node strip, .map/.d.ts, node-pty cross-platform prebuilds, OTel esm/esnext builds, READMEs/tests): ~97 MiB -> ~66 MiB
 pnpm run smoke                      # boot the assembled runtime exactly like the shell and GET the root
 pnpm run tauri:dev                  # development mode
-pnpm run tauri:build                # release build (.app + .dmg)
+pnpm run tauri:build                # release build (.dmg)
 pnpm run check:upstream             # check for a newer @deepseek-ai/dsh on npm
 pnpm run verify:update              # verify the updater-latest manifest + update URL after a release
 ```

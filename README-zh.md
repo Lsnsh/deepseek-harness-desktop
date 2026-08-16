@@ -40,7 +40,7 @@
 
 ## 下载与安装
 
-前往 [Releases](https://github.com/Lsnsh/deepseek-harness-desktop/releases) 下载对应架构的 DMG（或 .app）。
+前往 [Releases](https://github.com/Lsnsh/deepseek-harness-desktop/releases) 下载 DMG 安装包。
 
 > macOS 未签名/未公证，首次打开需在「系统设置 → 隐私与安全性」中允许，或右键 → 打开。
 
