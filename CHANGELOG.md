@@ -8,6 +8,28 @@ prerelease suffix during development.
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.6] — 2026-08-16
+
+### Changed
+
+- **Release builds now use the pruned runtime** (`DSH_DESKTOP_PRUNE=1` in the
+  release workflow): the bundled runtime archive drops from ~97 MiB to
+  ~63 MiB (−35%) — node binary stripped (re-signed), node-pty cross-platform
+  payloads, source maps, `.d.ts`/`@types`, tests/docs, and the otel
+  `sdk-trace` removed; smoke still passes.
+- CI caches the Rust build (`Swatinem/rust-cache`) so repeated
+  `cargo check --release` no longer recompiles the whole dependency tree.
+- READMEs: size figures updated to the pruned runtime; `verify:update`
+  documented.
+
+### Added
+
+- `scripts/verify-update.mjs` (`pnpm run verify:update`): fetches the
+  updater-latest manifest, asserts the version (optionally
+  `--expect-version <v>`) and that the darwin-aarch64 archive is reachable.
+  Wired into the release workflow as a post-publish verification step, so
+  every release is end-to-end checked for the auto-update chain.
+
 ## [0.1.0-beta.5] — 2026-08-16
 
 ### Added
@@ -140,7 +162,8 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.5...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.6...HEAD
+[0.1.0-beta.6]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.6
 [0.1.0-beta.5]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.5
 [0.1.0-beta.4]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.3

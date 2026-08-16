@@ -7,6 +7,24 @@
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.6] — 2026-08-16
+
+### 变更
+
+- **发布构建改用裁剪后的运行时**（release 工作流 `DSH_DESKTOP_PRUNE=1`）：
+  内置运行时归档从约 97 MiB 降至约 63 MiB（−35%）——node 二进制 strip（并
+  重新签名）、node-pty 跨平台载荷、source map、`.d.ts`/`@types`、测试/文档、
+  otel `sdk-trace` 均被移除；smoke 仍通过。
+- CI 增加 Rust 构建缓存（`Swatinem/rust-cache`），重复 `cargo check --release`
+  不再全量重编译依赖树。
+- README：体积数字更新为裁剪后运行时；补充 `verify:update` 说明。
+
+### 新增
+
+- `scripts/verify-update.mjs`（`pnpm run verify:update`）：拉取 updater-latest
+  清单，断言版本（可用 `--expect-version <v>`）与 darwin-aarch64 归档可达性。
+  已接入 release 工作流作为发布后验证步骤——每次发布都会端到端校验自动更新链路。
+
 ## [0.1.0-beta.5] — 2026-08-16
 
 ### 新增
@@ -121,7 +139,8 @@
 - 文档：双语 README（`README.md` / `README-zh.md`）与本更新日志
   （`CHANGELOG.md` / `CHANGELOG-zh.md`），MIT 许可。
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.5...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.6...HEAD
+[0.1.0-beta.6]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.6
 [0.1.0-beta.5]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.5
 [0.1.0-beta.4]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.3
