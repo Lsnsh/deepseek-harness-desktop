@@ -255,3 +255,13 @@ jobs:
               --notes "Updater pointer: the newest latest.json update manifest lives here (overwritten on every release)."
           fi
           echo "published $TAG (+ updater-latest pointer)"
+
+      - name: Verify the published updater manifest
+        # Post-release end-to-end check of the automatic-update chain the
+        # client consumes: the fixed updater-latest pointer must now carry
+        # THIS release's version, and its darwin-aarch64 archive URL must be
+        # reachable. Fails the job loudly if the pointer was not overwritten
+        # or the archive is missing (see scripts/verify-update.mjs).
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: node scripts/verify-update.mjs --expect-version "$VERSION"
