@@ -63,6 +63,14 @@ jobs:
       - name: Smoke-test the assembled runtime
         run: pnpm run smoke
 
+      - name: Cache Rust build artifacts
+        # Swatinem/rust-cache keys on Cargo.lock + rust toolchain, so repeated
+        # `cargo check --release` runs reuse ~/.cargo and target/ instead of
+        # recompiling the Tauri dependency tree from scratch.
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
       - name: Verify the Rust sources compile
         run: |
           cd src-tauri

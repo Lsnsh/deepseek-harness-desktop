@@ -15,7 +15,8 @@
     "signer-key": "bash scripts/gen-signer-key.sh",
     "tauri:dev": "pnpm run runtime && pnpm tauri dev",
     "tauri:build": "pnpm run runtime && pnpm tauri build",
-    "check:upstream": "node scripts/check-upstream.mjs"
+    "check:upstream": "node scripts/check-upstream.mjs",
+    "verify:update": "node scripts/verify-update.mjs"
   },
   "dependencies": {
     "@deepseek-ai/dsh": "0.1.0-rc.6"

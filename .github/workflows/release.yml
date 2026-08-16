@@ -86,7 +86,13 @@ jobs:
       - name: Build the shell frontend
         run: pnpm build
 
-      - name: Assemble the bundled runtime
+      - name: Assemble the bundled runtime (with size pruning)
+        # DSH_DESKTOP_PRUNE=1 (opt-in in assemble-runtime.mjs) strips the
+        # bundled node binary and drops dead weight (.map/.d.ts, node-pty
+        # cross-platform prebuilds, READMEs/tests): ~97 MiB -> ~63 MiB.
+        # strip + codesign run on the macOS runner (Xcode is preinstalled).
+        env:
+          DSH_DESKTOP_PRUNE: '1'
         run: pnpm run runtime
 
       - name: Smoke-test the assembled runtime
