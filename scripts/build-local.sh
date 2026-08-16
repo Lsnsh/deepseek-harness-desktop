@@ -44,7 +44,7 @@ if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
 fi
 # Developer ID code signing is configured in tauri.conf.json
 # (bundle.macOS.signingIdentity), so the app is signed automatically.
-pnpm exec tauri build --bundles dmg
+pnpm exec tauri build --bundles app,dmg
 
 APP="src-tauri/target/release/bundle/macos/DeepSeek Harness Developer Preview.app"
 if [[ ! -d "$APP" ]]; then
@@ -73,7 +73,15 @@ fi
 
 # Versioned copy for reference.
 mkdir -p artifacts
-VERSIONED="artifacts/DSH-DP_v${VERSION}_macOS_aarch64.app"
+VERSIONED="artifacts/DSH-DP_v${VERSION}_macOS_aarch64.dmg"
+DMG="src-tauri/target/release/bundle/dmg/DeepSeek Harness Developer Preview_${VERSION}_aarch64.dmg"
+if [[ -f "$DMG" ]]; then
+  cp "$DMG" "$VERSIONED"
+else
+  cp -R "$APP" "$VERSIONED"
+fi
+unset VERSIONED
+VERSIONED="artifacts/DSH-DP_v${VERSION}_macOS_aarch64.dmg"
 rm -rf "$VERSIONED"
 cp -R "$APP" "$VERSIONED"
 echo "==> [build-local] 版本化副本: $VERSIONED"

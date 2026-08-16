@@ -169,7 +169,10 @@ jobs:
         run: >-
           pnpm exec tauri build
           --config "${{ github.workspace }}/tauri.release.config.json"
-          --bundles dmg
+          # app is built solely to produce the updater archive
+          # (createUpdaterArtifacts requires an updater-enabled target);
+          # the published installers are the DMG only.
+          --bundles app,dmg
 
       - name: Rename assets to the DSH-DP convention
         # DSH-DP_{version}_{os}_{arch}.{ext} — short names that keep the
