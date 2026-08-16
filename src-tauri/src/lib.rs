@@ -83,10 +83,35 @@ fn show_about(app: &AppHandle) {
         .show(|_| {});
 }
 
+/// Kill the bundled web server and start it fresh (used after installing or
+/// removing plugins, whose bundle layers are composed at boot). The window
+/// returns to the splash until the new server is ready.
+fn restart_server(app: &AppHandle) {
+    if let Some(mut child) = app.state::<ServerChild>().0.lock().unwrap().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    *app.state::<ServerOrigin>().0.lock().unwrap() = None;
+    match server::spawn_server(app) {
+        Ok(spawned) => {
+            *app.state::<ServerChild>().0.lock().unwrap() = Some(spawned.child);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.navigate(local_app_url("index.html"));
+                server::watch_server(app.clone(), window);
+            }
+        }
+        Err(err) => {
+            eprintln!("[dsh-desktop] failed to restart the web server: {err}");
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.navigate(local_app_url("error.html"));
+            }
+        }
+    }
+}
+
 /// The user's home directory, used as the server's working directory so the
 /// default file-sandbox workspace root is meaningful for GUI launches.
-pub fn run() {
-    let app = tauri::Builder::default()
+pub fn run() {    let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -103,6 +128,7 @@ pub fn run() {
             // access to the plugins. The About entry always comes first.
             let about = MenuItem::with_id(handle, "about", "About DeepSeek Harness", true, None::<&str>)?;
             let check = MenuItem::with_id(handle, "check_update", "Check for Updates…", true, None::<&str>)?;
+            let restart = MenuItem::with_id(handle, "restart_server", "Restart Web Server", true, None::<&str>)?;
             let app_menu = Submenu::with_items(
                 handle,
                 "DeepSeek Harness",
@@ -110,6 +136,7 @@ pub fn run() {
                 &[
                     &about,
                     &check,
+                    &restart,
                     &PredefinedMenuItem::separator(handle)?,
                     &PredefinedMenuItem::quit(handle, None)?,
                 ],
@@ -138,6 +165,7 @@ pub fn run() {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "check_update" => updater::check_for_updates(app.clone(), true),
             "about" => show_about(&app),
+            "restart_server" => restart_server(&app),
             _ => {}
         })
         .manage(ServerChild::default())
