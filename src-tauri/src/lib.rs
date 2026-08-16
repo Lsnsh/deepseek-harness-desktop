@@ -333,7 +333,12 @@ pub fn run() {
 ///
 /// The key name is the frontend's own data contract (verified in
 /// @deepseek-ai/dsh-client-runtime), not an internal hack; the desktop
-/// bundles a pinned frontend version, so the contract is stable.
+/// bundles a pinned frontend version, so the contract is stable. The
+/// frontend's session list is a cross-workspace aggregate (every workspace's
+/// sessions are listed and grouped in the sidebar), so the jump opens a
+/// session of any workspace; [`notify::jump_to_last`] probes the harness
+/// `workspace.list` for the log and falls back to focusing only when the
+/// probe itself fails.
 const INIT_JUMP_SCRIPT: &str = r#"
 (() => {
   try {

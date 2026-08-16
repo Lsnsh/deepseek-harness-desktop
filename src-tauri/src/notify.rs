@@ -13,10 +13,32 @@
 //! The poll cadence and the notification gate can be tuned with env vars:
 //! `DSH_DESKTOP_NOTIFY=0` disables notifications entirely, and
 //! `DSH_DESKTOP_NOTIFY_INTERVAL_MS` changes the poll period (default 2000).
+//!
+//! ## Click-to-jump and workspaces
+//!
+//! Clicking a completion notification (or the dock icon) navigates the window
+//! to `?jump=<sessionId>`; the GUI's initialization script writes the
+//! frontend's persisted current-session key and the SPA opens that session on
+//! boot.
+//!
+//! Workspace handling: the frontend's session list is a *cross-workspace*
+//! aggregate — `session.list` returns every workspace's sessions (verified
+//! against a live harness: 37 sessions across 6 workspaces) and the sidebar
+//! renders them grouped per workspace, so opening a session of another
+//! workspace is a normal, supported action and `?jump=` works for it too. The
+//! frontend has no persisted "current workspace" key to switch (the only
+//! persisted keys across all client bundles are `dsh.sessions.current`,
+//! `dsh.conversation.chat`, `dsh.workspace.view.v5` and
+//! `dsh.trajectory.duration`), which is why no `?ws=` parameter exists. We
+//! still probe the harness (`workspace.list`) before navigating: it resolves
+//! the target workspace for the log line, and when the probe itself fails
+//! (server unreachable / API hiccup) we focus the window only instead of
+//! reloading the GUI on uncertainty.
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -36,6 +58,14 @@ const MAX_DECODED_BYTES: u64 = 64 * 1024 * 1024; // 64 MiB decompressed
 
 /// Compressed size above which a session log is never even opened.
 const MAX_COMPRESSED_BYTES: u64 = 256 * 1024 * 1024; // 256 MiB on disk
+
+/// Timeout for the loopback `/api` probes used by [`jump_to_last`] (the
+/// bundled harness answers in milliseconds; anything slower is a stall).
+const API_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Upper bound on a `/api` probe response body (workspace.list / session.list
+/// stay well under this; the cap only guards against a runaway server).
+const MAX_API_BODY_BYTES: u64 = 4 * 1024 * 1024; // 4 MiB
 
 /// Whether notifications are enabled. Any value of `DSH_DESKTOP_NOTIFY`
 /// other than `0` keeps them on.
@@ -294,28 +324,32 @@ fn notify_turn(app: &AppHandle, path: &Path, turn: CompletedTurn) {
 /// (it fired after the window was last focused). Called from `RunEvent::Reopen`
 /// (macOS dock/notification click); a plain dock click with nothing new does
 /// nothing.
+///
+/// Before navigating, the harness's `workspace.list` is probed to resolve the
+/// target workspace for the log (the frontend's session list is a
+/// cross-workspace aggregate, so a session of another workspace opens fine —
+/// see the module docs). When the probe itself fails, we focus the window
+/// only and never reload the GUI on uncertainty.
 pub fn jump_to_last(app: &AppHandle) {
     let Some(origin) = server_origin(app) else {
         return;
     };
     let state = app.state::<NotifyState>();
-    let (session_id, notified_at) = {
+    let (session_path, notified_at) = {
         let guard = state.last_notified.lock().ok();
         match guard.and_then(|g| g.clone()) {
-            Some((path, at)) => {
-                let id = path
-                    .parent()
-                    .and_then(|dir| dir.file_name())
-                    .map(|name| name.to_string_lossy().into_owned());
-                (id, Some(at))
-            }
+            Some((path, at)) => (Some(path), Some(at)),
             None => (None, None),
         }
     };
-    let Some(session_id) = session_id else {
+    let (Some(session_path), Some(notified_at)) = (session_path, notified_at) else {
         return;
     };
-    let Some(notified_at) = notified_at else {
+    let Some(session_id) = session_path
+        .parent()
+        .and_then(|dir| dir.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+    else {
         return;
     };
     // Only jump when the notification has not been seen yet (it fired after
@@ -330,6 +364,32 @@ pub fn jump_to_last(app: &AppHandle) {
     if seen {
         return;
     }
+    // Probe the harness for the target workspace (log-only; the GUI groups
+    // sessions per workspace, so if the target workspace is not the one
+    // currently shown the user can switch to it in the sidebar after the
+    // jump). A failed probe means the server may not be healthy — focus only.
+    match resolve_target_workspace(&origin, &session_path) {
+        Ok(Some((workspace_id, label))) => {
+            eprintln!(
+                "[dsh-desktop] session {session_id} belongs to workspace {label} \
+                 (id {workspace_id}); the GUI lists sessions across workspaces, \
+                 so the jump opens it regardless of the currently shown workspace"
+            );
+        }
+        Ok(None) => {
+            eprintln!(
+                "[dsh-desktop] session {session_id}: target workspace not found \
+                 in workspace.list (removed?); jumping anyway"
+            );
+        }
+        Err(err) => {
+            eprintln!(
+                "[dsh-desktop] cannot probe the workspace of session {session_id} \
+                 ({err}); focusing the window only"
+            );
+            return;
+        }
+    }
     // Same origin as the served GUI, so the navigation fence in lib.rs lets
     // it through; the initialization script picks up ?jump= on load.
     let mut url = origin;
@@ -343,6 +403,148 @@ pub fn jump_to_last(app: &AppHandle) {
 /// The current server origin, if the server has become ready.
 fn server_origin(app: &AppHandle) -> Option<tauri::Url> {
     app.try_state::<crate::ServerOrigin>()?.0.lock().ok()?.clone()
+}
+
+/// Resolve the workspace that owns a session log path by asking the harness
+/// `workspace.list` and matching each workspace `path` against the session
+/// store's slug encoding. `Ok(None)` means the workspace is not in the list
+/// (e.g. it was removed); `Err` means the probe itself failed.
+fn resolve_target_workspace(origin: &tauri::Url, session_path: &Path) -> Result<Option<(String, String)>, String> {
+    let Some(slug) = session_store_workspace(session_path) else {
+        return Ok(None);
+    };
+    let request = serde_json::json!({
+        "type": "client-request",
+        "rpcId": "dsh-desktop-workspace-list",
+        "method": "workspace.list",
+        "payload": {}
+    });
+    let response = api_post(origin, "workspace.list", &request)?;
+    let items = response
+        .pointer("/result/value/items")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "workspace.list response has no items".to_string())?;
+    for item in items {
+        let Some(path) = item.get("path").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if workspace_slug_of(path) != slug {
+            continue;
+        }
+        let label = match item.get("title").and_then(serde_json::Value::as_str) {
+            Some(title) => format!("{title} ({path})"),
+            None => path.to_string(),
+        };
+        let workspace_id = item
+            .get("workspaceId")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        return Ok(Some((workspace_id, label)));
+    }
+    Ok(None)
+}
+
+/// The session-store directory name for a workspace path: `/a/b` →
+/// `--a-b--` (the harness slugs workspace paths this way under
+/// `$DSH_HOME/sessions`).
+fn workspace_slug_of(path: &str) -> String {
+    let inner = path.trim_start_matches('/').replace('/', "-");
+    format!("--{inner}--")
+}
+
+/// The workspace slug of a session log path (`<store>/<slug>/<id>/session.jsonl.zstd`).
+fn session_store_workspace(path: &Path) -> Option<String> {
+    path.parent()?
+        .parent()?
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+}
+
+/// Minimal HTTP/1.1 JSON POST to the bundled harness's `/api` gateway
+/// (loopback only, same host/port as the served GUI). The body is the
+/// client-request envelope and the args live directly in `payload` (the
+/// harness parses the whole payload per method). Returns the parsed response
+/// body; a non-2xx status or a malformed body is an error.
+fn api_post(origin: &tauri::Url, method: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
+    use std::io::BufRead;
+    use std::io::BufReader;
+
+    let host = origin.host_str().unwrap_or("127.0.0.1").to_string();
+    let port = origin.port().unwrap_or(80);
+    let payload = body.to_string();
+    let request = format!(
+        "POST /api/{method} HTTP/1.1\r\n\
+         Host: {host}:{port}\r\n\
+         Content-Type: application/json\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n\
+         {payload}",
+        payload.len()
+    );
+    let mut stream = TcpStream::connect((host.as_str(), port))
+        .map_err(|err| format!("connect {host}:{port}: {err}"))?;
+    stream
+        .set_read_timeout(Some(API_TIMEOUT))
+        .map_err(|err| format!("set read timeout: {err}"))?;
+    stream
+        .set_write_timeout(Some(API_TIMEOUT))
+        .map_err(|err| format!("set write timeout: {err}"))?;
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|err| format!("write: {err}"))?;
+
+    let mut reader = BufReader::new(stream);
+    let mut status_line = String::new();
+    reader
+        .read_line(&mut status_line)
+        .map_err(|err| format!("read status: {err}"))?;
+    let status = status_line.split_whitespace().nth(1).unwrap_or("");
+    let mut content_length: Option<u64> = None;
+    loop {
+        let mut line = String::new();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|err| format!("read header: {err}"))?;
+        if read == 0 {
+            break;
+        }
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = trimmed.split_once(':') {
+            if name.eq_ignore_ascii_case("content-length") {
+                content_length = value.trim().parse().ok();
+            }
+        }
+    }
+    if !status.starts_with('2') {
+        return Err(format!("HTTP status {status}"));
+    }
+    let mut bytes = Vec::new();
+    match content_length {
+        Some(len) => {
+            if len > MAX_API_BODY_BYTES {
+                return Err(format!("response too large ({len} bytes)"));
+            }
+            reader
+                .take(len)
+                .read_to_end(&mut bytes)
+                .map_err(|err| format!("read body: {err}"))?;
+        }
+        None => {
+            reader
+                .take(MAX_API_BODY_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|err| format!("read body: {err}"))?;
+            if bytes.len() as u64 > MAX_API_BODY_BYTES {
+                return Err("response too large".to_string());
+            }
+        }
+    }
+    serde_json::from_slice(&bytes).map_err(|err| format!("parse JSON: {err}"))
 }
 
 /// The last `session/title` event's title in the log, if any. Bounded like
