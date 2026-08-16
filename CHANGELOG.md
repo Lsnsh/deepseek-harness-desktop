@@ -32,6 +32,21 @@ prerelease suffix during development.
   extraction command to use xz (`tar -xJf`; macOS/Linux/Windows bsdtar
   all support it) — deliberately left for the next round.
 
+### Added
+
+- **Developer ID code signing + notarization**: the app is signed with
+  `Developer ID Application: Apple Developer ID (APPLE_TEAM_ID_PLACEHOLDER)` and notarized through
+  App Store Connect (API-key credentials from GitHub secrets in CI; local
+  builds notarize via the Keychain profile — no plaintext anywhere).
+  Not on the App Store. Bundle identifier set to
+  `site.lsnsh.deepseek-harness-desktop`.
+- **Per-version release notes**: `docs/release-notes/v<ver>-{zh,en}.md`
+  generated from the changelogs; the GitHub release description uses the
+  zh notes (cc-switch style, en archived alongside).
+- **Secret scanning**: gitleaks in CI (every push/PR) plus a weekly
+  full-history scan that opens a security issue on findings; local scan of
+  the full history is clean.
+
 ## [0.1.0-beta.7] — 2026-08-16
 
 ### Added

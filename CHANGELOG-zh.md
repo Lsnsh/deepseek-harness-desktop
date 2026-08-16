@@ -28,6 +28,18 @@
   但需要壳层解压命令支持 xz（`tar -xJf`；macOS/Linux/Windows bsdtar 均支持）
   ——留待下一轮决策。
 
+### 新增
+
+- **Developer ID 代码签名 + 公证**：应用以 `Developer ID Application:
+  Apple Developer ID (APPLE_TEAM_ID_PLACEHOLDER)` 签名并经 App Store Connect 公证（CI 用 GitHub
+  secrets 的 API key；本地构建用钥匙串 profile——全程无明文）。不上架
+  App Store。Bundle identifier 改为 `site.lsnsh.deepseek-harness-desktop`。
+- **按版本 Release notes**：`docs/release-notes/v<ver>-{zh,en}.md` 由
+  CHANGELOG 生成；GitHub release 描述默认用中文版（cc-switch 风格，英文版
+  同步归档）。
+- **机密扫描**：CI 每次推送/PR 跑 gitleaks，另有每周全量历史扫描并在发现时
+  开安全 issue；本地全量扫描干净。
+
 ## [0.1.0-beta.7] — 2026-08-16
 
 ### 新增

@@ -26,7 +26,9 @@ function extractSection(changelogPath, version) {
   if (start === -1) return null
   const after = text.slice(start + marker.length)
   const end = after.search(/\n## \[/)
-  return (end === -1 ? after : after.slice(0, end)).trim()
+  const section = (end === -1 ? after : after.slice(0, end)).trim()
+  // Drop a leading "— YYYY-MM-DD" date line if present.
+  return section.replace(/^—\s*\d{4}-\d{2}-\d{2}\s*\n?/, '').trim()
 }
 
 /** Generate one language's release notes file. */
