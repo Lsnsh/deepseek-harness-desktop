@@ -35,6 +35,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Secret scanning (gitleaks)
+        # Fails the run if any secret pattern (API key, password, …) is
+        # committed. No plaintext credentials ever belong in the repo, commit
+        # messages, release notes, or workflow output.
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install pnpm
         uses: pnpm/action-setup@v6
         with:

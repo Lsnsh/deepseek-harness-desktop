@@ -52,7 +52,7 @@ NOTARY_PROFILE="${DSH_DESKTOP_NOTARY_PROFILE:-deepseek-harness-desktop-profile}"
 if [[ "$INSTALL" == "1" ]] && command -v xcrun >/dev/null 2>&1; then
   WORK="$(mktemp -d)"
   trap 'rm -rf "$WORK"' EXIT
-  echo "==> [build-local] 公证（notarytool, profile=$NOTARY_PROFILE）"
+  echo "==> [build-local] 公证（notarytool, profile=${NOTARY_PROFILE}）"
   ditto -c -k --sequesterRsrc --keepParent "$APP" "$WORK/app.zip"
   if xcrun notarytool submit "$WORK/app.zip" --keychain-profile "$NOTARY_PROFILE" --wait \
     | tee "$WORK/notary.log"; then
