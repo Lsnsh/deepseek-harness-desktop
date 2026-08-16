@@ -205,7 +205,7 @@ pub fn run() {
             Menu::with_items(handle, &[&app_menu, &edit_menu, &window_menu])
         })
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "check_update" => updater::check_for_updates(app.clone(), true),
+            "check_update" => updater::handle_menu_click(app.clone()),
             "about" => show_about(&app),
             "restart_server" => restart_server(&app),
             "plugin_manager" => open_plugin_manager(&app),
@@ -321,6 +321,9 @@ pub fn run() {
                     let _ = child.wait();
                 }
             }
+            // Install any downloaded-but-not-installed update synchronously
+            // (replaces the .app on macOS), then relaunch the app.
+            updater::install_pending_on_exit(&app_handle);
         }
         _ => {}
     });
