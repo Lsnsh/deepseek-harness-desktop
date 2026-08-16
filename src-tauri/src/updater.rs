@@ -26,7 +26,6 @@
 //! check (the menu action always stays available).
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -181,35 +180,39 @@ async fn run_check(app: &AppHandle, interactive: bool) -> Result<(), String> {
     let version = update.version.clone();
     set_menu_state(app, MenuState::Downloading);
 
-    // Stream the archive; accumulate bytes and surface progress via the
-    // `update-progress` event (consumed nowhere today, but useful for a
-    // future local progress page) plus stderr logs.
-    let downloaded = Arc::new(AtomicUsize::new(0));
-    let progress_counter = downloaded.clone();
-    let progress_app = app.clone();
-    let progress_version = version.clone();
+    // Stream the archive; surface progress via the `update-progress` event
+    // (consumed nowhere today, but useful for a future local progress page)
+    // plus throttled stderr logs. Accounting/throttling/emission live in
+    // `updater_progress`; the menu state machine above stays in charge of
+    // Idle → Downloading → Ready.
+    let tracker = Arc::new(Mutex::new(crate::updater_progress::ProgressTracker::new(
+        app.clone(),
+        app.state::<crate::updater_progress::ProgressState>().0.clone(),
+        version.clone(),
+    )));
+    let chunk_tracker = tracker.clone();
+    let finish_tracker = tracker.clone();
+    let failed_tracker = tracker.clone();
     let bytes = update
         .download(
             move |chunk, total| {
-                let acc = progress_counter.fetch_add(chunk, Ordering::Relaxed) + chunk;
-                eprintln!(
-                    "[dsh-desktop] update download: {acc}/{} bytes",
-                    total.unwrap_or(0)
-                );
-                let _ = progress_app.emit(
-                    "update-progress",
-                    serde_json::json!({
-                        "version": progress_version,
-                        "downloaded": acc,
-                        "total": total,
-                        "done": false,
-                    }),
-                );
+                if let Ok(mut tracker) = chunk_tracker.lock() {
+                    tracker.on_chunk(chunk, total);
+                }
             },
-            || {},
+            move || {
+                if let Ok(mut tracker) = finish_tracker.lock() {
+                    tracker.on_download_finish();
+                }
+            },
         )
         .await
-        .map_err(|err| format!("download failed: {err}"))?;
+        .map_err(|err| {
+            if let Ok(mut tracker) = failed_tracker.lock() {
+                tracker.on_failed();
+            }
+            format!("download failed: {err}")
+        })?;
 
     // Persist the "pending update" record (version + archive path) so a
     // future release can surface it; the bytes themselves stay in memory for

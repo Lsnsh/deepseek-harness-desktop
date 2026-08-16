@@ -13,6 +13,7 @@ mod plugins;
 mod server;
 mod tray;
 mod updater;
+mod updater_progress;
 
 use std::process::Child;
 use std::sync::{Arc, Mutex};
@@ -215,6 +216,7 @@ pub fn run() {
         .manage(ServerOrigin::default())
         .manage(notify::NotifyState::default())
         .manage(plugins::SearchCache::default())
+        .manage(updater_progress::ProgressState::default())
         .invoke_handler(tauri::generate_handler![
             plugins::list_plugins,
             plugins::search_plugins,
