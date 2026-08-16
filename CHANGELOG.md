@@ -8,6 +8,32 @@ prerelease suffix during development.
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.11] — 2026-08-17
+
+### Fixed
+
+- **Energy hog while an assistant reasoning ("Think"/deep dive) block streams**
+  (Activity Monitor energy impact ≈ 1000, WebContent main thread saturated).
+  The bundled web GUI's "Think" row kept a horizontally scrolling latest-line
+  summary: every streamed text chunk re-armed a `requestAnimationFrame` chain
+  whose update read `element.scrollWidth` — forcing a full synchronous
+  document layout — and then wrote `element.scrollLeft`, forcing a full
+  compositing pass plus per-frame event-region recomputation. On a large
+  conversation this locked the WKWebView main thread at ~100% for the whole
+  reasoning phase. The assembled runtime now carries two surgical patches on
+  the served GUI bundles (applied by `scripts/patch-runtime.mjs` inside the
+  runtime assembly):
+  - the Think-row summary is pinned to the right edge with a clamped sentinel
+    (`scrollLeft = 1e9`) instead of computing `scrollWidth - clientWidth`, so
+    no synchronous layout read happens, and the follow-scroll is throttled to
+    ~500 ms (30 frames) per row instead of re-arming on every chunk;
+  - the conversation frame-flush notifier enforces a 32 ms floor between
+    flushes (trailing-edge re-arm, no events dropped), capping re-render +
+    repaint at ~31 fps during high-rate streaming instead of once per frame.
+  Verified live: scroll writes drop ~60% during streaming, zero console
+  errors, streaming delivery unchanged; the scroll sentinel clamps to the
+  exact same end position.
+
 ## [0.1.0-beta.10] — 2026-08-16
 
 ### Fixed
