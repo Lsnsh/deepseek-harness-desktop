@@ -8,6 +8,23 @@ prerelease suffix during development.
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.9] — 2026-08-16
+
+### Added
+
+- **VSCode-style update flow**: updates are downloaded in the background with
+  visible progress; the "Check for Updates…" menu becomes "Downloading…"
+  (disabled) while downloading and "Restart to Update (1)" when ready;
+  clicking it asks whether to restart now; declining (or quitting without
+  choosing) installs on exit, so the next launch runs the new version.
+- **Conflicting dsh process guard**: on startup the splash page detects a
+  user-launched `dsh web` (shared ~/.dsh store would corrupt running
+  sessions) and lets you either **take over** (kill that dsh and start the
+  bundled one) or **attach** (act as a browser on the user's dsh instance).
+- Release notes now use a compact uniform template (version + beta notice +
+  linked Full Changelog compare); macOS publishes DMG only (the updater
+  archive is still produced for auto-update).
+
 ## [0.1.0-beta.8] — 2026-08-16
 
 ### Changed
@@ -219,7 +236,8 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.8...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.9...HEAD
+[0.1.0-beta.9]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.6

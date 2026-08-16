@@ -7,6 +7,20 @@
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.9] — 2026-08-16
+
+### 新增
+
+- **VSCode 式更新流程**：后台下载更新并显示进度；「Check for Updates…」菜单在
+  下载中变为「Downloading…」（禁用）、就绪后变为「Restart to Update (1)」；
+  点击询问是否立即重启；取消（或未选择直接退出）则在退出时安装，下次启动即为
+  新版本。
+- **dsh 进程冲突防护**：启动时引导页检测到用户自启的 `dsh web`（共享 ~/.dsh
+  会导致运行中会话损坏）时，可选择**接管**（杀掉该 dsh 并启动内置的）或
+  **Attach**（作为浏览器连接用户的 dsh 实例）。
+- Release notes 改用精简统一模板（版本 + beta 提示 + 链接化的 Full Changelog
+  对比）；macOS 仅发布 DMG（自动更新归档仍生成）。
+
 ## [0.1.0-beta.8] — 2026-08-16
 
 ### 变更
@@ -185,7 +199,8 @@
 - 文档：双语 README（`README.md` / `README-zh.md`）与本更新日志
   （`CHANGELOG.md` / `CHANGELOG-zh.md`），MIT 许可。
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.8...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.9...HEAD
+[0.1.0-beta.9]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.6
