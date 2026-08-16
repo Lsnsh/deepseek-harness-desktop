@@ -1,11 +1,14 @@
-# CI: verify the frontend build, assemble the bundled runtime, and smoke-test
-# it exactly the way the desktop shell starts it.
+# CI: verify the frontend build and the Rust sources compile.
 #
-# Trigger policy (internal dev loop: commits are frequent, and the CI artifact
-# — a Linux runtime archive — is not consumed downstream; release.yml builds
+# The Linux runtime is deliberately NOT assembled here. CI would otherwise
+# download a Node binary + pnpm and run a full `npm install` for the bundled
+# runtime every time, while the resulting `runtime-linux-x64` artifact is not
+# consumed downstream — release.yml builds its own macOS runtime.
+#
+# Trigger policy (internal dev loop: commits are frequent; release.yml builds
 # its own macOS runtime). To save runner minutes:
 #   - pull_request:      full CI (validate before merging, any changed paths)
-#   - push to main:      only when runtime/code paths change (docs-only
+#   - push to main:      only when relevant code/build paths change (docs-only
 #                        commits skip the build)
 #   - workflow_dispatch: manual full CI on demand
 
@@ -16,7 +19,6 @@ on:
     branches: [main]
     paths:
       - 'src-tauri/**'
-      - 'scripts/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'vite.config.ts'
@@ -65,11 +67,12 @@ jobs:
       - name: Build the shell frontend
         run: pnpm build
 
-      - name: Assemble the bundled runtime
-        run: pnpm run runtime
-
-      - name: Smoke-test the assembled runtime
-        run: pnpm run smoke
+      - name: Create placeholder runtime resource for Rust compile check
+        # tauri-build requires every configured resource to exist, even during
+        # `cargo check`. CI deliberately does not assemble the real Linux
+        # runtime (that work is only needed by release.yml on macOS), so an
+        # empty file is enough for the Rust source compile check.
+        run: mkdir -p resources && touch resources/runtime.tar.gz
 
       - name: Cache Rust build artifacts
         # Swatinem/rust-cache keys on Cargo.lock + rust toolchain, so repeated
@@ -83,10 +86,3 @@ jobs:
         run: |
           cd src-tauri
           cargo check --release
-
-      - name: Upload the runtime archive as an artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: runtime-linux-x64
-          path: resources/runtime.tar.gz
-          if-no-files-found: error
