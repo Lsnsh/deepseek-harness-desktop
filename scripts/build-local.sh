@@ -26,7 +26,7 @@ fi
 echo "==> [build-local] 前端构建"
 pnpm build
 
-echo "==> [build-local] tauri build (app)"
+echo "==> [build-local] tauri build (app, dmg)"
 # Sign the updater artifact with the local key (createUpdaterArtifacts
 # requires a private key even for a local app-only build).
 export TAURI_SIGNING_PRIVATE_KEY="${TAURI_SIGNING_PRIVATE_KEY:-$(cat "$HOME/.tauri/dsh.key" 2>/dev/null || true)}"
@@ -35,11 +35,33 @@ if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
   echo "==> [build-local] 未找到本地签名密钥 (~/.tauri/dsh.key)；跳过签名（更新功能不可用）"
   export TAURI_SIGNING_PRIVATE_KEY=""
 fi
-pnpm exec tauri build --bundles app
+# Developer ID code signing is configured in tauri.conf.json
+# (bundle.macOS.signingIdentity), so the app is signed automatically.
+pnpm exec tauri build --bundles app,dmg
 
 APP="src-tauri/target/release/bundle/macos/DeepSeek Harness Developer Preview.app"
 if [[ ! -d "$APP" ]]; then
   echo "==> [build-local] 构建产物缺失: $APP"; exit 1
+fi
+
+# Notarize the app with the credentials already stored in the Keychain
+# (xcrun notarytool --keychain-profile "deepseek-harness-desktop-profile"),
+# then staple the ticket into the bundle so Gatekeeper trusts it. No
+# plaintext credentials appear in this script.
+NOTARY_PROFILE="${DSH_DESKTOP_NOTARY_PROFILE:-deepseek-harness-desktop-profile}"
+if [[ "$INSTALL" == "1" ]] && command -v xcrun >/dev/null 2>&1; then
+  WORK="$(mktemp -d)"
+  trap 'rm -rf "$WORK"' EXIT
+  echo "==> [build-local] 公证（notarytool, profile=$NOTARY_PROFILE）"
+  ditto -c -k --sequesterRsrc --keepParent "$APP" "$WORK/app.zip"
+  if xcrun notarytool submit "$WORK/app.zip" --keychain-profile "$NOTARY_PROFILE" --wait \
+    | tee "$WORK/notary.log"; then
+    xcrun stapler staple "$APP" || echo "==> [build-local] staple 警告（app 仍可运行，但可能提示未验证）"
+    echo "==> [build-local] 公证完成"
+  else
+    echo "==> [build-local] 公证失败（跳过 staple，继续安装）"
+    tail -5 "$WORK/notary.log" 2>/dev/null || true
+  fi
 fi
 
 # Versioned copy for reference.

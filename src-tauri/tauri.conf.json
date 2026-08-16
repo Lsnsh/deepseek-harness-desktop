@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DeepSeek Harness Developer Preview",
   "version": "0.1.0-beta.8",
-  "identifier": "com.lsnsh.deepseek-harness-desktop",
+  "identifier": "site.lsnsh.deepseek-harness-desktop",
   "build": {
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
@@ -31,7 +31,8 @@
       "../resources/runtime.tar.gz"
     ],
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": "Developer ID Application: Apple Developer ID (APPLE_TEAM_ID_PLACEHOLDER)"
     }
   },
   "plugins": {
