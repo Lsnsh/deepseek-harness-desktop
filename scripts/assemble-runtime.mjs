@@ -203,7 +203,28 @@ export function pruneApp() {
   for (const dir of ['@types', '@opentelemetry/sdk-trace']) {
     rmSync(join(nm, dir), { recursive: true, force: true })
   }
-  console.log(`prune: removed ${removed} junk files/dirs (${(removedBytes / 1024 / 1024).toFixed(1)} MiB) + .d.ts/@types/sdk-trace`)
+  // 5) OTel dual builds: every @opentelemetry/* package ships build/esm +
+  //    build/esnext for bundlers, but Node resolves these pinned versions to
+  //    build/src (CJS "main"; none expose an "import" condition), and a boot
+  //    trace shows zero files load from esm/esnext — dead weight.
+  const otelDir = join(nm, '@opentelemetry')
+  if (existsSync(otelDir)) {
+    for (const pkg of readdirSync(otelDir)) {
+      const build = join(otelDir, pkg, 'build')
+      for (const variant of ['esm', 'esnext']) {
+        rmSync(join(build, variant), { recursive: true, force: true })
+      }
+    }
+  }
+  // 6) shiki's oniguruma .wasm: the web profile's markdown renderer
+  //    (dsh-client-ui-primitives) highlights with createJavaScriptRegexEngine,
+  //    so the onig.wasm blob is never loaded (verified by an actual
+  //    highlight run after removal).
+  rmSync(join(nm, 'shiki', 'dist', 'onig.wasm'), { force: true })
+  // 7) npm's hidden install manifest: internal bookkeeping, never read by
+  //    the app at runtime.
+  rmSync(join(nm, '.package-lock.json'), { force: true })
+  console.log(`prune: removed ${removed} junk files/dirs (${(removedBytes / 1024 / 1024).toFixed(1)} MiB) + .d.ts/@types/sdk-trace/otel-esm-esnext/onig.wasm`)
 }
 
 /** Remove every file under `dir` matching `pred` (relative path). */
@@ -360,7 +381,12 @@ export function assembleRuntime() {
   // archive is extracted to the app cache at first launch (see server.rs).
   const archive = join(DESKTOP_ROOT, 'resources', 'runtime.tar.gz')
   rmSync(archive, { force: true })
-  execFileSync('tar', ['-czf', archive, '-C', RUNTIME_DIR, '.'], { stdio: 'inherit' })
+  // gzip level 9 (bsdtar --options gzip:compression-level=9): a bit slower to
+  // compress, identical decompression, ~0.4 MiB smaller than the default -6.
+  // zstd would compress ~31% better (46.6 vs 67 MiB) but macOS's system
+  // bsdtar has no zstd support, and server.rs extracts with `tar -xzf`, so
+  // the archive must stay gzip.
+  execFileSync('tar', ['-czf', archive, '--options', 'gzip:compression-level=9', '-C', RUNTIME_DIR, '.'], { stdio: 'inherit' })
   const archiveBytes = statSync(archive).size
   console.log(`assemble: runtime archive ready at ${relative(DESKTOP_ROOT, archive)} (${(archiveBytes / 1024 / 1024).toFixed(1)} MiB, modules ${modulesHash.slice(0, 12)}…)`)
 }
