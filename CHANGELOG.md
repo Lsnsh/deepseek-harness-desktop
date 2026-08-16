@@ -8,6 +8,20 @@ prerelease suffix during development.
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.5] — 2026-08-16
+
+### Added
+
+- **Plugin Manager hardening**:
+  - Pre-install manifest verification: GitHub-repo specs are checked against
+    the raw `package.json` for the `dsh.bundle` / `dsh.client` contract
+    before installing — bare repositories are rejected with a clear error.
+  - Install confirmation dialog in the Plugin Manager (repo name, stars,
+    description, third-party-execution warning).
+  - Install/remove audit log at `$DSH_HOME/desktop-audit.log` (UTC+8, action,
+    plugin, result).
+- READMEs: Plugin Manager documented; roadmap item marked as implemented (MVP).
+
 ## [0.1.0-beta.4] — 2026-08-16
 
 ### Added
@@ -126,7 +140,8 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.4...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.5...HEAD
+[0.1.0-beta.5]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.5
 [0.1.0-beta.4]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.2

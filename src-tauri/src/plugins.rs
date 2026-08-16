@@ -11,9 +11,18 @@
 //!
 //! Search hits the GitHub search API (`topic:dsh-plugin`); the unauthenticated
 //! rate limit is 10 req/min, so results are cached in memory.
+//!
+//! Before installing a plugin referenced by a GitHub repo (`owner/repo`), we
+//! fetch the repo's `package.json` and verify it declares the dsh plugin
+//! contract — a `dsh.bundle` or `dsh.client` field in the manifest. Repos that
+//! do not declare either are rejected with an explicit error, because any
+//! third-party code installed this way runs with the same permissions as the
+//! app itself. Successful installs/removals are appended to an audit log at
+//! `$DSH_HOME/desktop-audit.log` (UTC+8 timestamps).
 
 use std::collections::HashMap;
-use std::fs::{create_dir_all, write};
+use std::fs::{create_dir_all, write, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
@@ -146,15 +155,129 @@ pub fn search_plugins(app: AppHandle, query: Option<String>, page: Option<u32>) 
 }
 
 /// Install a plugin into the web profile: `dsh plugin --profile web add <spec>`.
+///
+/// When `spec` looks like a GitHub repo (`owner/repo`, not an `@scope/name`
+/// npm spec), the repo's `package.json` is fetched first and must declare the
+/// dsh plugin contract (`dsh.bundle` or `dsh.client`) — otherwise the install
+/// is refused with an explicit error.
 #[tauri::command]
 pub fn install_plugin(app: AppHandle, spec: String) -> Result<PluginCommandResult, String> {
-    run_plugin_command(&app, &["add", &spec])
+    let spec = spec.trim();
+    if is_github_repo_spec(spec) {
+        verify_github_plugin_manifest(spec)?;
+    }
+    let result = run_plugin_command(&app, &["add", spec])?;
+    if result.ok {
+        append_audit("install", spec, "success");
+    }
+    Ok(result)
 }
 
 /// Remove a plugin from the web profile: `dsh plugin --profile web remove <name>`.
 #[tauri::command]
 pub fn uninstall_plugin(app: AppHandle, name: String) -> Result<PluginCommandResult, String> {
-    run_plugin_command(&app, &["remove", &name])
+    let result = run_plugin_command(&app, &["remove", &name])?;
+    if result.ok {
+        append_audit("uninstall", &name, "success");
+    }
+    Ok(result)
+}
+
+/// A GitHub repo spec is a bare `owner/repo` (contains `/` and is not an npm
+/// scoped spec `@scope/name`). Anything else (npm name, scoped package, URL)
+/// is passed through to `dsh plugin add` without manifest verification.
+fn is_github_repo_spec(spec: &str) -> bool {
+    spec.contains('/') && !spec.starts_with('@')
+}
+
+/// Fetch `<owner>/<repo>`'s package.json and require the dsh plugin contract.
+fn verify_github_plugin_manifest(full_name: &str) -> Result<(), String> {
+    let branch = resolve_default_branch(full_name)?;
+    let url = format!("https://raw.githubusercontent.com/{full_name}/{branch}/package.json");
+    let pkg_text = http_get(&url)?;
+    check_plugin_contract(full_name, &pkg_text)
+}
+
+/// Resolve the repo's default branch — first via the GitHub API (which also
+/// confirms the repo exists), falling back to probing `master` then `main`
+/// through the raw package.json endpoint.
+fn resolve_default_branch(full_name: &str) -> Result<String, String> {
+    let api_url = format!("https://api.github.com/repos/{full_name}");
+    if let Ok(body) = http_get(&api_url) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(branch) = json.get("default_branch").and_then(|b| b.as_str()) {
+                return Ok(branch.to_string());
+            }
+        }
+    }
+    for candidate in ["master", "main"] {
+        let probe = format!("https://raw.githubusercontent.com/{full_name}/{candidate}/package.json");
+        if http_get(&probe).is_ok() {
+            return Ok(candidate.to_string());
+        }
+    }
+    Err(format!(
+        "无法确定 {full_name} 的默认分支（GitHub API 与 master/main 探测均失败），已拒绝安装"
+    ))
+}
+
+/// A real dsh plugin manifest declares `dsh.bundle` (server/bundle plugin) or
+/// `dsh.client` (client plugin) in its package.json.
+fn check_plugin_contract(full_name: &str, pkg_text: &str) -> Result<(), String> {
+    let json: serde_json::Value = serde_json::from_str(pkg_text)
+        .map_err(|err| format!("{full_name} 的 package.json 解析失败：{err}"))?;
+    let is_plugin = json
+        .get("dsh")
+        .and_then(|d| d.as_object())
+        .is_some_and(|dsh| dsh.contains_key("bundle") || dsh.contains_key("client"));
+    if is_plugin {
+        Ok(())
+    } else {
+        Err(format!(
+            "拒绝安装 {full_name}：package.json 未声明 dsh.bundle 或 dsh.client，不是有效的 dsh 插件"
+        ))
+    }
+}
+
+/// Append one audit line to `$DSH_HOME/desktop-audit.log`
+/// (`YYYY-MM-DD HH:MM:SS +08:00 | action | plugin | result`).
+fn append_audit(action: &str, plugin: &str, result: &str) {
+    let path = dsh_home().join("desktop-audit.log");
+    if let Some(parent) = path.parent() {
+        let _ = create_dir_all(parent);
+    }
+    let line = format!("{} | {} | {} | {}\n", utc8_now(), action, plugin, result);
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+
+/// Current time in UTC+8 (Asia/Shanghai), formatted without external deps.
+fn utc8_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+        .saturating_add(8 * 3600);
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let (hour, minute, second) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02} +08:00")
+}
+
+/// Days-since-epoch → (year, month, day); Howard Hinnant's civil_from_days.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if month <= 2 { y + 1 } else { y }, month, day)
 }
 
 /// Run `dsh plugin --profile web <args>` with the bundled pnpm on PATH.

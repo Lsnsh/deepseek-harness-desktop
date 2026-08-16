@@ -154,13 +154,21 @@
           const card = document.createElement('div');
           card.className = 'card';
           const desc = r.description || '（无描述）';
-          card.innerHTML = `
-            <div class="meta">
-              <div class="name">${esc(r.full_name)}</div>
-              <div class="desc">${esc(desc)}</div>
-            </div>
-            <div class="stars">⭐ ${r.stars.toLocaleString()}</div>
-            <button onclick="install('${esc(r.full_name)}')">安装</button>`;
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.innerHTML = `
+            <div class="name">${esc(r.full_name)}</div>
+            <div class="desc">${esc(desc)}</div>`;
+          const stars = document.createElement('div');
+          stars.className = 'stars';
+          stars.textContent = '⭐ ' + Number(r.stars || 0).toLocaleString();
+          const btn = document.createElement('button');
+          btn.textContent = '安装';
+          btn.dataset.fullName = r.full_name;
+          btn.dataset.stars = String(r.stars || 0);
+          btn.dataset.desc = r.description || '';
+          btn.addEventListener('click', () => requestInstall(btn));
+          card.append(meta, stars, btn);
           el.appendChild(card);
         }
       } catch (e) {
@@ -171,11 +179,25 @@
       }
     }
 
-    async function install(spec) {
-      const btn = event.target;
+    function requestInstall(btn) {
+      const fullName = btn.dataset.fullName;
+      const stars = Number(btn.dataset.stars || 0).toLocaleString();
+      const desc = btn.dataset.desc || '（无描述）';
+      const msg =
+        `确认安装 ${fullName}？\n\n` +
+        `⭐ Stars: ${stars}\n` +
+        `描述：${desc}\n\n` +
+        `⚠️ 警告：第三方代码将以本应用同等权限执行。\n` +
+        `安装前将校验该仓库的 package.json 是否声明 dsh.bundle / dsh.client 插件契约。\n\n` +
+        `点击「确定」继续安装。`;
+      if (!confirm(msg)) return;
+      install(fullName, btn);
+    }
+
+    async function install(spec, btn) {
       btn.disabled = true;
       btn.textContent = '安装中…';
-      log(`dsh plugin add ${spec}（可能需要几分钟，git 源会编译构建脚本）`);
+      log(`校验并安装 ${spec}（可能需要几分钟，git 源会编译构建脚本）`);
       try {
         const r = await invoke('install_plugin', { spec });
         log(r.output || (r.ok ? '安装成功。' : '安装失败。'));
