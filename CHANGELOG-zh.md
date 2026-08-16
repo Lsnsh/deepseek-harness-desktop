@@ -7,6 +7,22 @@
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.7] — 2026-08-16
+
+### 新增
+
+- **Plugin Manager 二阶段**：
+  - 安装/卸载**流式输出**：`dsh plugin` 的 stdout/stderr 经 Tauri 事件逐行
+    推送并在插件页实时滚动显示，不再干等。
+  - 已安装插件**版本检测**：从 profile 读取真实版本展示；GitHub 来源插件检测到
+    更新（release/tag）时显示「有更新」徽章（10 分钟缓存以规避 GitHub 限流）。
+  - 卸载失败给出明确**恢复建议**；失败也写入审计日志。
+- **跨工作区会话跳转**：点击完成通知时会先探测目标会话所属工作区（走回环
+  `workspace.list` API）并记录，跨工作区也照常跳转（当前前端聚合所有工作区，
+  跳转可用）；探测失败则仅聚焦窗口。
+- 文档：`docs/platform-preflight.md`——Windows/Linux 支持预研（逐文件盘点、
+  5 个阻塞项、CI 矩阵方案）。
+
 ## [0.1.0-beta.6] — 2026-08-16
 
 ### 变更
@@ -139,7 +155,8 @@
 - 文档：双语 README（`README.md` / `README-zh.md`）与本更新日志
   （`CHANGELOG.md` / `CHANGELOG-zh.md`），MIT 许可。
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.6...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.7...HEAD
+[0.1.0-beta.7]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.6
 [0.1.0-beta.5]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.5
 [0.1.0-beta.4]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.4

@@ -8,6 +8,27 @@ prerelease suffix during development.
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.7] — 2026-08-16
+
+### Added
+
+- **Plugin Manager, round 2**:
+  - Streaming install/remove output: `dsh plugin` stdout/stderr is pushed
+    line-by-line via a Tauri event and shown live in the plugin page (no more
+    waiting on a spinner).
+  - Installed plugin versions are read from the profile and shown; for
+    GitHub-sourced plugins an update badge appears when a newer release/tag
+    exists (10-minute cache to respect the GitHub rate limit).
+  - Uninstall failure now surfaces explicit recovery hints; failures are
+    recorded in the audit log too.
+- **Cross-workspace notification jump**: clicking a completion notification
+  probes the target session's workspace (via the loopback `workspace.list`
+  API), logs it, and navigates even when the session belongs to another
+  workspace (the current frontend aggregates all workspaces, so the jump
+  works); if the probe fails it focuses the window instead.
+- Docs: `docs/platform-preflight.md` — Windows/Linux support preflight
+  research (per-file audit, 5 blocking items, CI matrix plan).
+
 ## [0.1.0-beta.6] — 2026-08-16
 
 ### Changed
@@ -162,7 +183,8 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.6...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.7...HEAD
+[0.1.0-beta.7]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.6
 [0.1.0-beta.5]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.5
 [0.1.0-beta.4]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.4
