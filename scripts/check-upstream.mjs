@@ -19,7 +19,12 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
 
-/** Compare two semver-ish versions (numbers dotted; prerelease sorts lower). */
+/**
+ * Compare two semver-ish versions (numbers dotted; prerelease sorts lower).
+ * Prerelease identifiers are compared per SemVer: numeric identifiers sort
+ * numerically (rc.10 > rc.6), non-numeric ones lexically, and numeric <
+ * non-numeric.
+ */
 export function compareVersions(a, b) {
   const parse = (v) => {
     const [core, pre] = String(v).split('-', 2)
@@ -33,10 +38,33 @@ export function compareVersions(a, b) {
     const nb = pb.nums[i] ?? 0
     if (na !== nb) return na > nb ? 1 : -1
   }
-  if (pa.pre === pb.pre) return 0
-  if (pa.pre === '') return 1
-  if (pb.pre === '') return -1
-  return pa.pre < pb.pre ? -1 : 1
+  return comparePre(pa.pre, pb.pre)
+}
+
+/** Parse one prerelease identifier: numeric strings become numbers. */
+function parsePreId(part) {
+  return /^\d+$/.test(part) ? Number(part) : part
+}
+
+/** Per-SemVer prerelease comparison (missing identifiers sort first). */
+function comparePre(a, b) {
+  if (a === b) return 0
+  if (a === '') return 1 // release > prerelease
+  if (b === '') return -1
+  const pa = a.split('.').map(parsePreId)
+  const pb = b.split('.').map(parsePreId)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? 0
+    const y = pb[i] ?? 0
+    if (typeof x === 'number' && typeof y === 'number') {
+      if (x !== y) return x > y ? 1 : -1
+    } else if (String(x) !== String(y)) {
+      if (typeof x === 'number') return -1 // numeric < non-numeric
+      if (typeof y === 'number') return 1
+      return String(x) > String(y) ? 1 : -1
+    }
+  }
+  return 0
 }
 
 /** The currently pinned version in the root package.json. */

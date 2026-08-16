@@ -23,6 +23,9 @@ use crate::{local_app_url, ServerChild, ServerOrigin};
 
 /// How long the server may take to print its readiness URL before we give up.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long the server may stay unresponsive after becoming ready before we
+/// declare it dead and show the error page.
+const UNRESPONSIVE_TIMEOUT: Duration = Duration::from_secs(15);
 /// Poll interval while waiting for the URL line / server health.
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
@@ -196,7 +199,10 @@ pub fn spawn_server(app: &AppHandle) -> Result<SpawnedServer, String> {
     let mut command = Command::new(&node_path);
     command
         .arg(&entry_path)
-        .args(["--profile", "web", "--port", "0"])
+        // --host is pinned explicitly: the shell must never silently serve
+        // the (unauthenticated) harness GUI on anything but loopback, even if
+        // a future dsh release changes its default bind address.
+        .args(["--profile", "web", "--host", "127.0.0.1", "--port", "0"])
         .current_dir(home_dir())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -294,17 +300,32 @@ pub fn watch_server(app: AppHandle, window: WebviewWindow) {
         }
     });
 
-    // Supervisor: wait for the URL (or exit / timeout), then navigate.
+    // Supervisor: wait for the URL (or exit / timeout), navigate, then keep
+    // supervising the live server so a crash after readiness still lands on
+    // the error page instead of a dead window.
     let state_for_supervisor = child_state.clone();
     thread::spawn(move || {
         let start = Instant::now();
         let mut url: Option<Url> = None;
+        let mut ready = false;
+        let mut unresponsive_since: Option<Instant> = None;
         loop {
             if let Some(url) = url.clone() {
                 if http_get_ok(&url) {
-                    *origin_state.lock().unwrap() = Some(url.clone());
-                    let _ = window.navigate(url);
-                    return;
+                    if !ready {
+                        *origin_state.lock().unwrap() = Some(url.clone());
+                        let _ = window.navigate(url.clone());
+                        ready = true;
+                    }
+                    unresponsive_since = None;
+                } else if ready {
+                    // The server was ready but is now unresponsive; give it a
+                    // grace window before declaring it dead.
+                    let since = *unresponsive_since.get_or_insert(Instant::now());
+                    if since.elapsed() > UNRESPONSIVE_TIMEOUT {
+                        eprintln!("[dsh-desktop] server became unresponsive; showing error page");
+                        break;
+                    }
                 }
             }
             match rx.try_recv() {
@@ -316,15 +337,16 @@ pub fn watch_server(app: AppHandle, window: WebviewWindow) {
                     }
                 },
                 Ok(ServerEvent::Exited(code)) => {
-                    if url.is_none() {
-                        eprintln!("[dsh-desktop] server exited before becoming ready (code {code:?})");
-                    }
+                    eprintln!(
+                        "[dsh-desktop] server exited (code {code:?}){}",
+                        if ready { " after becoming ready" } else { " before becoming ready" }
+                    );
                     break;
                 }
                 Err(TryRecvError::Empty) => {}
                 Err(TryRecvError::Disconnected) => break,
             }
-            if start.elapsed() > STARTUP_TIMEOUT {
+            if !ready && start.elapsed() > STARTUP_TIMEOUT {
                 eprintln!("[dsh-desktop] timed out waiting for the server (url={url:?})");
                 break;
             }

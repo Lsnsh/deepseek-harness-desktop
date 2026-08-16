@@ -28,6 +28,15 @@ use tauri_plugin_notification::NotificationExt;
 /// How long to wait for the store to exist before giving up on the first pass.
 const STORE_BOOT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Upper bound on a decoded session log, per file per pass. Session logs can
+/// legitimately grow large (tool output, file reads), but an unbounded decode
+/// would let a single huge log pin memory every poll; past the cap the log is
+/// skipped (and backed off) instead.
+const MAX_DECODED_BYTES: u64 = 64 * 1024 * 1024; // 64 MiB decompressed
+
+/// Compressed size above which a session log is never even opened.
+const MAX_COMPRESSED_BYTES: u64 = 256 * 1024 * 1024; // 256 MiB on disk
+
 /// Whether notifications are enabled. Any value of `DSH_DESKTOP_NOTIFY`
 /// other than `0` keeps them on.
 fn notifications_enabled() -> bool {
@@ -48,20 +57,26 @@ fn dsh_home() -> PathBuf {
     std::env::var_os("DSH_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".dsh")))
-        .unwrap_or_else(|| PathBuf::from("~/.dsh"))
+        .unwrap_or_else(|| PathBuf::from(".dsh"))
 }
 
 /// One watched session log: its last observed size plus the turn/end events
 /// already notified (`(turn, seq)` pairs, so a file append is idempotent).
 /// `baselined` marks the first observation of the file: its history is
 /// recorded silently so the app never replays turns that finished before (or
-/// around) launch.
+/// around) launch. `consecutive_failures` counts decode failures so a broken
+/// file is backed off instead of re-decoded (and re-failed) every pass.
 #[derive(Default)]
 struct FileState {
     size: u64,
     baselined: bool,
+    consecutive_failures: u32,
     notified: std::collections::HashSet<(u64, u64)>,
 }
+
+/// A session log that keeps failing to decode is left alone for this many
+/// polling passes before we try again.
+const FAILURE_BACKOFF_PASSES: u32 = 30; // 30 × 2s ≈ 1 minute of quiet
 
 /// Shared watcher state, owned by the app (see [`spawn`]).
 pub struct NotifyState {
@@ -107,16 +122,30 @@ fn scan_once(app: &AppHandle, store: &Path) -> Result<(), String> {
     let state = app.state::<NotifyState>();
     let mut files = state.files.lock().map_err(|_| "notify state poisoned".to_string())?;
     for path in logs {
+        let entry = files.entry(path.clone()).or_default();
+        if entry.consecutive_failures > 0 {
+            entry.consecutive_failures -= 1;
+            continue; // backing off a previously-broken file
+        }
         let (size, completed) = match read_completed_turns(&path) {
             Ok(found) => found,
-            Err(_) => continue, // mid-write or unreadable; try again next pass
+            Err(_) => {
+                // Mid-write (dsh appends whole zstd frames, so a torn tail
+                // fails the whole decode) or unreadable; back off so a
+                // persistently broken file is not re-decoded every pass.
+                entry.consecutive_failures = FAILURE_BACKOFF_PASSES;
+                continue;
+            }
         };
-        let entry = files.entry(path.clone()).or_default();
         if entry.size > size {
             // The log was truncated/rotated; re-base so we do not resend the
             // whole history.
             entry.notified.clear();
             entry.baselined = false;
+        }
+        if entry.baselined && entry.size == size {
+            // Unchanged since the last scan: skip the expensive full decode.
+            continue;
         }
         if !entry.baselined {
             // First observation: record the current history silently.
@@ -163,19 +192,30 @@ fn discover_logs(store: &Path) -> Vec<PathBuf> {
 }
 
 /// Decode a session log and return its current size plus the completed
-/// `turn/end` events found (reason `completed` or `error`).
+/// `turn/end` events found (reason `completed` or `error`). Decoding is
+/// bounded: a session log that expands beyond the cap (or is compressed
+/// beyond the hard limit) is treated as an error so a runaway or hostile
+/// log cannot exhaust memory.
 fn read_completed_turns(path: &Path) -> Result<(u64, Vec<CompletedTurn>), String> {
     let file = File::open(path).map_err(|err| format!("open {}: {err}", path.display()))?;
     let size = file
         .metadata()
         .map_err(|err| format!("stat {}: {err}", path.display()))?
         .len();
+    if size > MAX_COMPRESSED_BYTES {
+        return Err(format!("session log too large ({} bytes)", size));
+    }
     let mut decoder =
         zstd::stream::read::Decoder::new(file).map_err(|err| format!("zstd header: {err}"))?;
     let mut raw = String::new();
     decoder
+        .by_ref()
+        .take(MAX_DECODED_BYTES + 1)
         .read_to_string(&mut raw)
         .map_err(|err| format!("zstd decode: {err}"))?;
+    if raw.len() as u64 > MAX_DECODED_BYTES {
+        return Err(format!("session log expands beyond {} bytes", MAX_DECODED_BYTES));
+    }
     let mut completed = Vec::new();
     for line in raw.lines() {
         let Ok(event) = serde_json::from_str::<Value>(line) else {
@@ -230,17 +270,28 @@ fn notify_turn(app: &AppHandle, path: &Path, turn: CompletedTurn) {
         .show();
 }
 
-/// The last `session/title` event's title in the log, if any.
+/// The last `session/title` event's title in the log, if any. Bounded like
+/// `read_completed_turns`; title is additionally truncated to a sane length
+/// for the notification.
 fn session_title(path: &Path) -> String {
     let Ok(file) = File::open(path) else {
         return String::new();
     };
+    if file.metadata().map(|m| m.len()).unwrap_or(0) > MAX_COMPRESSED_BYTES {
+        return String::new();
+    }
     let mut decoder = match zstd::stream::read::Decoder::new(file) {
         Ok(decoder) => decoder,
         Err(_) => return String::new(),
     };
     let mut raw = String::new();
-    if decoder.read_to_string(&mut raw).is_err() {
+    if decoder
+        .by_ref()
+        .take(MAX_DECODED_BYTES + 1)
+        .read_to_string(&mut raw)
+        .is_err()
+        || raw.len() as u64 > MAX_DECODED_BYTES
+    {
         return String::new();
     }
     let mut title = String::new();
@@ -255,5 +306,11 @@ fn session_title(path: &Path) -> String {
             title = value.to_string();
         }
     }
-    title
+    // Strip control characters and cap the length for the notification.
+    let clean: String = title
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(80)
+        .collect();
+    clean
 }

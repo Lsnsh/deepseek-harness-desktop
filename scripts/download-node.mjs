@@ -11,10 +11,11 @@
  * @module deepseek-harness-desktop/download-node
  */
 
-import { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 
 /** The pinned Node.js version for the bundled runtime. */
@@ -70,6 +71,7 @@ export function downloadNode() {
   try {
     console.log(`download-node: fetching ${url}`)
     execFileSync('curl', ['-fsSL', '-o', join(work, archive), url], { stdio: 'inherit' })
+    verifyChecksum(join(work, archive), archive)
     // bsdtar handles both .tar.gz and .zip; no extra tool per platform.
     execFileSync('tar', ['-xf', join(work, archive), '-C', work], { stdio: 'inherit' })
     const extractedBin = join(work, memberDir, memberBin)
@@ -84,6 +86,32 @@ export function downloadNode() {
   } finally {
     rmSync(work, { recursive: true, force: true })
   }
+}
+
+/**
+ * Verify a downloaded archive against nodejs.org's SHASUMS256.txt. The
+ * checksums file itself is unsigned (upstream limitation), but this still
+ * catches truncated/corrupted downloads and mirror tampering.
+ * @param {string} archivePath - the downloaded archive.
+ * @param {string} archiveName - the dist file name to look up.
+ */
+function verifyChecksum(archivePath, archiveName) {
+  const shasums = execFileSync('curl', [
+    '-fsSL',
+    `https://nodejs.org/dist/${NODE_VERSION}/SHASUMS256.txt`,
+  ], { encoding: 'utf8' })
+  const line = shasums.split('\n').find((line) => line.includes(archiveName))
+  if (!line) {
+    throw new Error(`download-node: SHASUMS256.txt has no entry for ${archiveName}`)
+  }
+  const expected = line.trim().split(/\s+/)[0].toLowerCase()
+  const actual = createHash('sha256').update(readFileSync(archivePath)).digest('hex')
+  if (actual !== expected) {
+    throw new Error(
+      `download-node: checksum mismatch for ${archiveName}\n  expected ${expected}\n  actual   ${actual}`
+    )
+  }
+  console.log(`download-node: checksum verified for ${archiveName}`)
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

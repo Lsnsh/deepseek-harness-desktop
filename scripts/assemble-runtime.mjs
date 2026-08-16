@@ -113,6 +113,175 @@ export function installApp() {
   }
 }
 
+/**
+ * EXPERIMENTAL prune pass (opt-in via `DSH_DESKTOP_PRUNE=1`).
+ *
+ * Shrinks the assembled runtime without touching any business code:
+ *   1. node-pty: keep only the current platform/arch prebuild, drop every
+ *      other platform's prebuilds, all Windows .pdb debug symbols, and the
+ *      Windows-only source trees (third_party/ conpty, deps/ winpty).
+ *   2. Drop every *.map source map (never read at runtime).
+ *   3. Drop docs/junk: README, CHANGELOG, CONTRIBUTING, SECURITY files, and
+ *      docs/ examples/ benchmark(s)/ test(s)/ __tests__/ fixtures/ dirs.
+ *      LICENSE/NOTICE files are kept (legal).
+ *   4. macOS only: strip the bundled node binary (local symbols) and
+ *      re-apply the ad-hoc code signature, which arm64 macOS requires.
+ *
+ * Default is OFF so the standard build is byte-identical to before; flip
+ * DSH_DESKTOP_PRUNE=1 to get the slimmer archive. The structural hash and
+ * the manifest are computed after pruning, so a pruned build has its own
+ * nodeModulesHash and the desktop shell is none the wiser.
+ */
+export function pruneApp() {
+  if (process.env.DSH_DESKTOP_PRUNE !== '1') return
+  const nm = join(APP_DIR, 'node_modules')
+  // 1) node-pty cross-platform payload
+  const pty = join(nm, 'node-pty')
+  if (existsSync(pty)) {
+    const prebuilds = join(pty, 'prebuilds')
+    if (existsSync(prebuilds)) {
+      for (const entry of readdirSync(prebuilds)) {
+        if (entry !== `${process.platform}-${process.arch}`) {
+          rmSync(join(prebuilds, entry), { recursive: true, force: true })
+        }
+      }
+    }
+    for (const dir of ['third_party', 'deps', 'scripts', 'typings']) {
+      rmSync(join(pty, dir), { recursive: true, force: true })
+    }
+    console.log('prune: node-pty -> current platform prebuild only')
+  }
+  // 2/3) recursive junk sweep over the whole tree. Directory names alone are
+  // ambiguous (yaml ships runtime code under dist/doc/), so a directory is
+  // only pruned when it is clearly non-code: test/benchmark/examples dirs,
+  // plus docs/ dirs that contain no .js/.mjs/.cjs/.json files.
+  const JUNK_DIRS = new Set(['docs', 'examples', 'benchmark', 'benchmarks', 'test', 'tests', '__tests__', 'testdata'])
+  const DOC_DIRS = new Set(['doc'])
+  let removed = 0
+  let removedBytes = 0
+  const sweep = (dir) => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (JUNK_DIRS.has(entry.name)) {
+          const size = dirSize(path)
+          rmSync(path, { recursive: true, force: true })
+          removed += 1
+          removedBytes += size
+        } else if (DOC_DIRS.has(entry.name) && !dirHasCode(path)) {
+          const size = dirSize(path)
+          rmSync(path, { recursive: true, force: true })
+          removed += 1
+          removedBytes += size
+        } else {
+          sweep(path)
+        }
+      } else if (entry.isFile()) {
+        if (entry.name.endsWith('.map') || /^(readme|changelog|contributing|security|authors|copying)/i.test(entry.name)) {
+          const size = statSync(path).size
+          rmSync(path, { force: true })
+          removed += 1
+          removedBytes += size
+        }
+      }
+    }
+  }
+  sweep(nm)
+  // 4) Dead weight verified by a runtime module trace of the web profile
+  //    (boot + root GET): TypeScript declarations are never loaded, and the
+  //    OpenTelemetry metrics/trace SDKs are not in the logs-only load path.
+  removeFiles(nm, (p) => p.endsWith('.d.ts'))
+  for (const dir of ['@types', '@opentelemetry/sdk-metrics', '@opentelemetry/sdk-trace']) {
+    rmSync(join(nm, dir), { recursive: true, force: true })
+  }
+  console.log(`prune: removed ${removed} junk files/dirs (${(removedBytes / 1024 / 1024).toFixed(1)} MiB) + .d.ts/@types/otel-metrics-trace`)
+}
+
+/** Remove every file under `dir` matching `pred` (relative path). */
+function removeFiles(dir, pred) {
+  const walk = (current) => {
+    let entries
+    try {
+      entries = readdirSync(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const path = join(current, entry.name)
+      if (entry.isDirectory()) walk(path)
+      else if (entry.isFile() && pred(path)) rmSync(path, { force: true })
+    }
+  }
+  walk(dir)
+}
+
+/** Whether a directory contains any file that could be executable code. */
+function dirHasCode(dir) {
+  let found = false
+  const walk = (current) => {
+    let entries
+    try {
+      entries = readdirSync(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const path = join(current, entry.name)
+      if (entry.isDirectory()) walk(path)
+      else if (entry.isFile() && /\.(js|mjs|cjs|json|node)$/i.test(entry.name)) {
+        found = true
+        return
+      }
+    }
+  }
+  walk(dir)
+  return found
+}
+
+function dirSize(dir) {
+  let total = 0
+  const walk = (current) => {
+    let entries
+    try {
+      entries = readdirSync(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const path = join(current, entry.name)
+      if (entry.isDirectory()) walk(path)
+      else if (entry.isFile()) total += statSync(path).size
+    }
+  }
+  walk(dir)
+  return total
+}
+
+/**
+ * EXPERIMENTAL: strip local symbols from the bundled Node binary and re-sign
+ * it (macOS arm64 only). Verified to keep N-API addons (node-pty, sharp,
+ * koffi) working. On Linux a plain `strip --strip-unneeded` could be used;
+ * UPX is not viable here because it invalidates the mandatory code signature
+ * on macOS. Skipped unless DSH_DESKTOP_PRUNE=1.
+ */
+export function stripNodeBin(nodeBin) {
+  if (process.env.DSH_DESKTOP_PRUNE !== '1') return
+  if (process.platform !== 'darwin') {
+    console.log('prune: node strip skipped (non-darwin platform)')
+    return
+  }
+  execFileSync('strip', ['-x', nodeBin], { stdio: 'inherit' })
+  execFileSync('codesign', ['--force', '-s', '-', nodeBin], { stdio: 'inherit' })
+  execFileSync(nodeBin, ['--version'], { stdio: 'inherit' })
+  console.log(`prune: stripped node binary (${(statSync(nodeBin).size / 1024 / 1024).toFixed(1)} MiB)`)
+}
+
 function dirname(p) {
   return resolve(p, '..')
 }
@@ -163,7 +332,9 @@ export function hashTree(dir) {
  */
 export function assembleRuntime() {
   installApp()
+  pruneApp()
   const node = downloadNode()
+  stripNodeBin(node)
   const modulesHash = hashTree(join(APP_DIR, 'node_modules'))
   writeFileSync(join(RUNTIME_DIR, 'manifest.json'), JSON.stringify({
     platform: `${process.platform}-${process.arch}`,
