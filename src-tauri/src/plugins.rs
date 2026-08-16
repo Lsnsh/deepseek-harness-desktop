@@ -12,27 +12,36 @@
 //! Search hits the GitHub search API (`topic:dsh-plugin`); the unauthenticated
 //! rate limit is 10 req/min, so results are cached in memory.
 //!
-//! Before installing a plugin referenced by a GitHub repo (`owner/repo`), we
-//! fetch the repo's `package.json` and verify it declares the dsh plugin
-//! contract — a `dsh.bundle` or `dsh.client` field in the manifest. Repos that
-//! do not declare either are rejected with an explicit error, because any
-//! third-party code installed this way runs with the same permissions as the
-//! app itself. Successful installs/removals are appended to an audit log at
-//! `$DSH_HOME/desktop-audit.log` (UTC+8 timestamps).
+//! Safety & UX (beta.5 / beta.7):
+//! - Before installing a plugin referenced by a GitHub repo (`owner/repo`), we
+//!   fetch the repo's `package.json` and require the dsh plugin contract
+//!   (`dsh.bundle` or `dsh.client`); non-plugin repos are rejected with an
+//!   explicit error.
+//! - Install/uninstall output is streamed to the frontend via the
+//!   `plugin-progress` Tauri event so the Plugin Manager shows live output
+//!   instead of blocking silently until completion.
+//! - Successful installs/removals (and failures) are appended to an audit log
+//!   at `$DSH_HOME/desktop-audit.log` (UTC+8 timestamps).
+//! - Installed versions are reported from the profile's `node_modules`, and
+//!   for plugins installed from a GitHub repo, the latest remote release/tag
+//!   is checked (cached) to flag "update available".
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, write, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
-use std::sync::Mutex;
+use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// GitHub search rate budget: one fresh search per 6s, cached otherwise.
 const SEARCH_CACHE_TTL: Duration = Duration::from_secs(60);
+/// Remote-version check budget: at most one fresh GitHub request per repo
+/// every 10 minutes (unauthenticated API limit is 60 req/h).
+const UPDATE_CACHE_TTL: Duration = Duration::from_secs(600);
 /// The web profile name the desktop shell serves.
 const WEB_PROFILE: &str = "web";
 
@@ -41,6 +50,9 @@ const WEB_PROFILE: &str = "web";
 pub struct SearchCache {
     entries: Mutex<HashMap<String, (Instant, Vec<GitHubRepo>)>>,
 }
+
+/// Process-global remote-version cache (full_name → (checked_at, latest tag)).
+static UPDATE_CACHE: OnceLock<Mutex<HashMap<String, (Instant, Option<String>)>>> = OnceLock::new();
 
 /// A GitHub repository search result item.
 #[derive(Clone, Serialize)]
@@ -54,19 +66,35 @@ pub struct GitHubRepo {
     pub topics: Vec<String>,
 }
 
-/// The manifest of the web profile: installed plugin dependencies and the
-/// active bundle layer list.
+/// The manifest of the web profile: installed plugin dependencies, the active
+/// bundle layer list, each dependency's installed version, and the subset of
+/// GitHub-sourced plugins that have a newer remote release/tag.
 #[derive(Serialize)]
 pub struct ProfileManifest {
     pub dependencies: Vec<String>,
     pub bundles: Vec<String>,
+    pub versions: HashMap<String, String>,
+    pub updates: Vec<String>,
 }
 
-/// One plugin command's result (stdout + exit status).
+/// One plugin command's result (stdout + stderr + exit status).
 #[derive(Serialize)]
 pub struct PluginCommandResult {
     pub ok: bool,
     pub output: String,
+}
+
+/// One chunk of streamed plugin-command output (`plugin-progress` event).
+#[derive(Clone, Serialize)]
+pub struct PluginProgress {
+    /// "install" | "uninstall"
+    pub op: String,
+    /// One output line when streaming; `None` on the terminal event.
+    pub line: Option<String>,
+    /// Terminal event marker.
+    pub done: bool,
+    /// Terminal exit status.
+    pub ok: Option<bool>,
 }
 
 /// The dsh home directory (default `~/.dsh`, honor `DSH_HOME`).
@@ -82,29 +110,106 @@ fn profile_dir() -> PathBuf {
     dsh_home().join("profiles").join(WEB_PROFILE)
 }
 
-/// Read the web profile manifest (dependencies + bundle layer list).
-#[tauri::command]
-pub fn list_plugins(_app: AppHandle) -> Result<ProfileManifest, String> {
+/// Record of which installed package name came from which GitHub repo
+/// (`$DSH_HOME/desktop-plugin-sources.json`), used for update detection.
+fn sources_path() -> PathBuf {
+    dsh_home().join("desktop-plugin-sources.json")
+}
+
+fn load_sources() -> HashMap<String, String> {
+    std::fs::read_to_string(sources_path())
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn save_sources(sources: &HashMap<String, String>) {
+    if let Some(parent) = sources_path().parent() {
+        let _ = create_dir_all(parent);
+    }
+    if let Ok(text) = serde_json::to_string_pretty(sources) {
+        let _ = write(sources_path(), text);
+    }
+}
+
+fn record_source(package: &str, full_name: &str) {
+    let mut sources = load_sources();
+    sources.insert(package.to_string(), full_name.to_string());
+    save_sources(&sources);
+}
+
+fn remove_source(package: &str) {
+    let mut sources = load_sources();
+    sources.remove(package);
+    save_sources(&sources);
+}
+
+/// Names currently declared in the web profile's package.json dependencies.
+fn installed_dep_names() -> Result<HashSet<String>, String> {
     let manifest_path = profile_dir().join("package.json");
     let text = std::fs::read_to_string(&manifest_path)
         .map_err(|err| format!("cannot read {}: {err}", manifest_path.display()))?;
     let value: serde_json::Value = serde_json::from_str(&text)
         .map_err(|err| format!("cannot parse {}: {err}", manifest_path.display()))?;
-    let dependencies = value
+    Ok(value
         .get("dependencies")
         .and_then(|d| d.as_object())
-        .map(|map| {
-            let mut names: Vec<String> = map.keys().cloned().collect();
-            names.sort();
-            names
-        })
-        .unwrap_or_default();
+        .map(|map| map.keys().cloned().collect())
+        .unwrap_or_default())
+}
+
+/// The actually-installed version of a package, read from the profile's
+/// `node_modules` (the manifest dependency entry is only a range).
+fn installed_version(name: &str) -> Option<String> {
+    let pkg = profile_dir().join("node_modules").join(name).join("package.json");
+    let text = std::fs::read_to_string(&pkg).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    value.get("version").and_then(|v| v.as_str()).map(String::from)
+}
+
+/// Read the web profile manifest (dependencies + bundle layer list + versions
+/// + GitHub update flags).
+#[tauri::command]
+pub fn list_plugins(_app: AppHandle) -> Result<ProfileManifest, String> {
+    let names: Vec<String> = {
+        let mut names: Vec<String> = installed_dep_names()?.into_iter().collect();
+        names.sort();
+        names
+    };
+    let manifest_path = profile_dir().join("package.json");
+    let text = std::fs::read_to_string(&manifest_path)
+        .map_err(|err| format!("cannot read {}: {err}", manifest_path.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|err| format!("cannot parse {}: {err}", manifest_path.display()))?;
     let bundles = value
         .pointer("/dsh/profile/bundles")
         .and_then(|b| b.as_array())
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
-    Ok(ProfileManifest { dependencies, bundles })
+    let mut versions = HashMap::new();
+    for name in &names {
+        if let Some(version) = installed_version(name) {
+            versions.insert(name.clone(), version);
+        }
+    }
+    let sources = load_sources();
+    let mut updates: Vec<String> = sources
+        .iter()
+        .filter(|(name, _)| names.iter().any(|n| n == *name))
+        .filter(|(name, full_name)| {
+            let local = versions.get(*name);
+            remote_latest_version(full_name)
+                .is_some_and(|remote| local.map_or(true, |local| is_newer(&remote, local)))
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    updates.sort();
+    Ok(ProfileManifest {
+        dependencies: names,
+        bundles,
+        versions,
+        updates,
+    })
 }
 
 /// Search GitHub for dsh-plugin repositories (cached).
@@ -159,28 +264,57 @@ pub fn search_plugins(app: AppHandle, query: Option<String>, page: Option<u32>) 
 /// When `spec` looks like a GitHub repo (`owner/repo`, not an `@scope/name`
 /// npm spec), the repo's `package.json` is fetched first and must declare the
 /// dsh plugin contract (`dsh.bundle` or `dsh.client`) — otherwise the install
-/// is refused with an explicit error.
+/// is refused with an explicit error. Output streams live to the frontend via
+/// the `plugin-progress` event.
 #[tauri::command]
 pub fn install_plugin(app: AppHandle, spec: String) -> Result<PluginCommandResult, String> {
     let spec = spec.trim();
     if is_github_repo_spec(spec) {
         verify_github_plugin_manifest(spec)?;
     }
-    let result = run_plugin_command(&app, &["add", spec])?;
+    let before = installed_dep_names()?;
+    let result = run_plugin_command_streaming(&app, &["add", spec], "install")?;
     if result.ok {
+        // If the install came from a GitHub repo, remember the package → repo
+        // mapping so update detection can resolve the remote repo later.
+        if is_github_repo_spec(spec) {
+            if let Ok(after) = installed_dep_names() {
+                for name in after.difference(&before) {
+                    record_source(name, spec);
+                }
+            }
+        }
         append_audit("install", spec, "success");
+    } else {
+        append_audit("install", spec, "failure");
     }
     Ok(result)
 }
 
 /// Remove a plugin from the web profile: `dsh plugin --profile web remove <name>`.
+///
+/// On failure the error includes a recovery hint; a success that leaves the
+/// package in the manifest is surfaced as well.
 #[tauri::command]
 pub fn uninstall_plugin(app: AppHandle, name: String) -> Result<PluginCommandResult, String> {
-    let result = run_plugin_command(&app, &["remove", &name])?;
+    let result = run_plugin_command_streaming(&app, &["remove", &name], "uninstall")?;
     if result.ok {
+        remove_source(&name);
         append_audit("uninstall", &name, "success");
+        let still_installed = installed_dep_names().map(|names| names.contains(&name)).unwrap_or(false);
+        if still_installed {
+            return Err(format!(
+                "卸载 {name} 命令已成功，但依赖清单中仍存在该插件。\n恢复建议：重启 Web 服务后重试卸载，或手动执行 `dsh plugin --profile web remove {name}`。"
+            ));
+        }
+        Ok(result)
+    } else {
+        append_audit("uninstall", &name, "failure");
+        Err(format!(
+            "卸载 {name} 失败：{}\n恢复建议：该插件可能仍在依赖清单中——请重试卸载，或重启 Web 服务后重试；若已部分移除，可在插件页重新安装该插件。",
+            result.output.trim()
+        ))
     }
-    Ok(result)
 }
 
 /// A GitHub repo spec is a bare `owner/repo` (contains `/` and is not an npm
@@ -239,6 +373,63 @@ fn check_plugin_contract(full_name: &str, pkg_text: &str) -> Result<(), String> 
     }
 }
 
+/// The latest published release/tag of a GitHub repo, cached per repo for
+/// `UPDATE_CACHE_TTL`. `releases/latest` first, falling back to the newest tag.
+fn remote_latest_version(full_name: &str) -> Option<String> {
+    let cache = UPDATE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    {
+        if let Ok(guard) = cache.lock() {
+            if let Some((at, cached)) = guard.get(full_name) {
+                if at.elapsed() < UPDATE_CACHE_TTL {
+                    return cached.clone();
+                }
+            }
+        }
+    }
+    let remote = fetch_latest_tag(full_name);
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(full_name.to_string(), (Instant::now(), remote.clone()));
+    }
+    remote
+}
+
+fn fetch_latest_tag(full_name: &str) -> Option<String> {
+    let releases = format!("https://api.github.com/repos/{full_name}/releases/latest");
+    if let Ok(body) = http_get(&releases) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(tag) = json.get("tag_name").and_then(|t| t.as_str()) {
+                return Some(tag.to_string());
+            }
+        }
+    }
+    let tags = format!("https://api.github.com/repos/{full_name}/tags?per_page=1");
+    if let Ok(body) = http_get(&tags) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(first) = json.as_array().and_then(|arr| arr.first()) {
+                if let Some(tag) = first.get("name").and_then(|t| t.as_str()) {
+                    return Some(tag.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// `remote` is "newer" than `local` when its numeric version segments sort
+/// higher (leading `v`/`V`, prerelease/build suffixes ignored).
+fn is_newer(remote: &str, local: &str) -> bool {
+    parse_version(remote) > parse_version(local)
+}
+
+fn parse_version(version: &str) -> Vec<u64> {
+    version
+        .trim()
+        .trim_start_matches(['v', 'V'])
+        .split(['.', '-', '+'])
+        .filter_map(|part| part.parse::<u64>().ok())
+        .collect()
+}
+
 /// Append one audit line to `$DSH_HOME/desktop-audit.log`
 /// (`YYYY-MM-DD HH:MM:SS +08:00 | action | plugin | result`).
 fn append_audit(action: &str, plugin: &str, result: &str) {
@@ -280,8 +471,9 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if month <= 2 { y + 1 } else { y }, month, day)
 }
 
-/// Run `dsh plugin --profile web <args>` with the bundled pnpm on PATH.
-fn run_plugin_command(app: &AppHandle, args: &[&str]) -> Result<PluginCommandResult, String> {
+/// Run `dsh plugin --profile web <args>` with the bundled pnpm on PATH,
+/// streaming stdout/stderr lines to the frontend via `plugin-progress`.
+fn run_plugin_command_streaming(app: &AppHandle, args: &[&str], op: &str) -> Result<PluginCommandResult, String> {
     let (node_path, entry_path) = crate::server::runtime_binaries(app)?;
     let pnpm_shim_dir = pnpm_shim_dir(app)?;
     // dsh plugin spawns `pnpm` from PATH; prepend the shim directory.
@@ -290,23 +482,75 @@ fn run_plugin_command(app: &AppHandle, args: &[&str]) -> Result<PluginCommandRes
         path.push(':');
         path.push_str(&existing.to_string_lossy());
     }
-    let output = Command::new(&node_path)
+    let mut child = Command::new(&node_path)
         .arg(&entry_path)
         .args(["plugin", "--profile", WEB_PROFILE])
         .args(args)
         .current_dir(profile_dir())
         .env("PATH", path)
-        .stdin(std::process::Stdio::null())
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|err| format!("failed to run dsh plugin: {err}"))?;
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    if !output.stderr.is_empty() {
-        text.push_str(&String::from_utf8_lossy(&output.stderr));
-    }
+    let stdout = child.stdout.take().expect("stdout piped");
+    let stderr = child.stderr.take().expect("stderr piped");
+
+    let output = std::sync::Arc::new(Mutex::new(String::new()));
+    let stdout_thread = {
+        let app = app.clone();
+        let op = op.to_string();
+        let sink = output.clone();
+        std::thread::spawn(move || drain_lines(stdout, &app, &op, &sink))
+    };
+    let stderr_thread = {
+        let app = app.clone();
+        let op = op.to_string();
+        let sink = output.clone();
+        std::thread::spawn(move || drain_lines(stderr, &app, &op, &sink))
+    };
+
+    let status = child.wait().map_err(|err| format!("failed to wait dsh plugin: {err}"))?;
+    let _ = stdout_thread.join();
+    let _ = stderr_thread.join();
+
+    let text = output.lock().map(|guard| guard.clone()).unwrap_or_default();
+    let _ = app.emit(
+        "plugin-progress",
+        PluginProgress {
+            op: op.to_string(),
+            line: None,
+            done: true,
+            ok: Some(status.success()),
+        },
+    );
     Ok(PluginCommandResult {
-        ok: output.status.success(),
+        ok: status.success(),
         output: text,
     })
+}
+
+/// Read a piped stream line-by-line, appending to the shared sink and emitting
+/// each line as a `plugin-progress` event.
+fn drain_lines<R: std::io::Read>(reader: R, app: &AppHandle, op: &str, sink: &Mutex<String>) {
+    use std::io::BufRead;
+    let reader = std::io::BufReader::new(reader);
+    for line in reader.lines() {
+        let Ok(line) = line else { break };
+        if let Ok(mut guard) = sink.lock() {
+            guard.push_str(&line);
+            guard.push('\n');
+        }
+        let _ = app.emit(
+            "plugin-progress",
+            PluginProgress {
+                op: op.to_string(),
+                line: Some(line),
+                done: false,
+                ok: None,
+            },
+        );
+    }
 }
 
 /// Ensure the pnpm shim exists in the runtime and return its directory. The

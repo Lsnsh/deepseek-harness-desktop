@@ -14,6 +14,7 @@
       --accent: #4f8cff;
       --danger: #ff6b6b;
       --ok: #34d399;
+      --update: #ffc107;
       --border: rgba(139, 160, 184, 0.18);
     }
     * { box-sizing: border-box; }
@@ -81,9 +82,18 @@
       margin-top: 14px;
     }
     .notice b { color: var(--accent); }
-    #log { color: var(--muted); font-size: 12px; margin-top: 10px; min-height: 16px; white-space: pre-wrap; }
-    .badge { font-size: 11px; border-radius: 6px; padding: 1px 7px; }
+    .badge { font-size: 11px; border-radius: 6px; padding: 1px 7px; margin-left: 6px; }
     .badge.installed { background: rgba(52,211,153,.15); color: var(--ok); }
+    .badge.update { background: rgba(255,193,7,.15); color: var(--update); }
+    .ver { color: var(--muted); font-size: 11px; font-weight: 400; margin-left: 6px; }
+    #log {
+      color: var(--muted); font-size: 12px; margin-top: 10px;
+      min-height: 18px; max-height: 240px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-all;
+      background: rgba(0,0,0,.25); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 10px;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    }
   </style>
 </head>
 <body>
@@ -111,12 +121,34 @@
 
   <script>
     const invoke = window.__TAURI__.core.invoke;
+    const logEl = document.getElementById('log');
+    // The operation currently streaming into #log ("install" | "uninstall" | null).
+    let currentOp = null;
+
+    window.__TAURI__.event.listen('plugin-progress', (event) => {
+      const p = event.payload || {};
+      if (!currentOp || p.op !== currentOp) return;
+      if (p.line) {
+        appendProgress(p.line);
+      } else if (p.done) {
+        appendProgress(`── ${p.ok ? '完成' : '失败'} ──`);
+      }
+    });
+
+    function appendProgress(line) {
+      logEl.textContent = (logEl.textContent ? logEl.textContent + '\n' : '') + line;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    function clearProgress() { logEl.textContent = ''; }
+    function log(msg) { logEl.textContent = msg; logEl.scrollTop = logEl.scrollHeight; }
 
     async function refreshInstalled() {
       const el = document.getElementById('installed');
       try {
         const m = await invoke('list_plugins');
         const names = m.dependencies || [];
+        const versions = m.versions || {};
+        const updates = m.updates || [];
         if (names.length === 0) {
           el.className = 'empty';
           el.textContent = '尚未安装任何插件。';
@@ -127,9 +159,21 @@
         for (const name of names) {
           const card = document.createElement('div');
           card.className = 'card';
-          card.innerHTML = `<div class="meta"><div class="name">${esc(name)}</div></div>
-            <span class="badge installed">已安装</span>
-            <button class="danger" onclick="uninstall('${esc(name)}')">卸载</button>`;
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          let nameHtml = `<div class="name">${esc(name)}`;
+          if (versions[name]) nameHtml += `<span class="ver">v${esc(versions[name])}</span>`;
+          if (updates.includes(name)) nameHtml += `<span class="badge update">有更新</span>`;
+          nameHtml += '</div>';
+          meta.innerHTML = nameHtml;
+          const badge = document.createElement('span');
+          badge.className = 'badge installed';
+          badge.textContent = '已安装';
+          const btn = document.createElement('button');
+          btn.className = 'danger';
+          btn.textContent = '卸载';
+          btn.addEventListener('click', () => uninstall(name, btn));
+          card.append(meta, badge, btn);
           el.appendChild(card);
         }
       } catch (e) {
@@ -197,38 +241,48 @@
     async function install(spec, btn) {
       btn.disabled = true;
       btn.textContent = '安装中…';
+      clearProgress();
+      currentOp = 'install';
       log(`校验并安装 ${spec}（可能需要几分钟，git 源会编译构建脚本）`);
       try {
         const r = await invoke('install_plugin', { spec });
-        log(r.output || (r.ok ? '安装成功。' : '安装失败。'));
+        appendProgress(r.output ? r.output.trim() : (r.ok ? '安装成功。' : '安装失败。'));
         if (r.ok) {
           document.getElementById('restartNotice').style.display = '';
           await refreshInstalled();
         }
       } catch (e) {
-        log('安装失败：' + e);
+        appendProgress('安装失败：' + e);
       } finally {
+        currentOp = null;
         btn.disabled = false;
         btn.textContent = '安装';
       }
     }
 
-    async function uninstall(name) {
+    async function uninstall(name, btn) {
       if (!confirm(`确定卸载 ${name}？`)) return;
+      btn.disabled = true;
+      btn.textContent = '卸载中…';
+      clearProgress();
+      currentOp = 'uninstall';
       log(`dsh plugin remove ${name}`);
       try {
         const r = await invoke('uninstall_plugin', { name });
-        log(r.output || (r.ok ? '卸载成功。' : '卸载失败。'));
+        appendProgress(r.output ? r.output.trim() : (r.ok ? '卸载成功。' : '卸载失败。'));
         if (r.ok) {
           document.getElementById('restartNotice').style.display = '';
           await refreshInstalled();
         }
       } catch (e) {
-        log('卸载失败：' + e);
+        appendProgress('卸载失败：' + e);
+      } finally {
+        currentOp = null;
+        btn.disabled = false;
+        btn.textContent = '卸载';
       }
     }
 
-    function log(msg) { document.getElementById('log').textContent = msg; }
     function esc(s) { return s.replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
     document.getElementById('q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
