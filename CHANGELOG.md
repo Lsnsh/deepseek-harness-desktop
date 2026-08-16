@@ -6,6 +6,32 @@ and this project adheres to
 [Semantic Versioning](https://semver.org/) — every release carries a `-beta`
 prerelease suffix during development.
 
+> ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
+
+## [0.1.0-beta.2] — 2026-08-16
+
+### Changed
+
+- Release assets use the short **DSH-DP** convention:
+  `DSH-DP_{version}_{os}_{arch}.{ext}` (e.g. `DSH-DP_v0.1.0-beta.2_macOS_aarch64.dmg`),
+  so the file extension stays visible in the release list; release notes now
+  end with per-platform download links.
+- GitHub Actions upgraded (checkout@v7, setup-node@v7, upload-artifact@v7,
+  download-artifact@v8, pnpm/action-setup@v6), removing the Node.js 20
+  deprecation warnings.
+- CI trigger policy: the Linux runtime artifact is not consumed downstream,
+  so pushes to main run the full CI only when code/runtime paths change;
+  PRs and manual dispatch still always run it — saving runner minutes during
+  the frequent internal commit loop.
+- Documentation timestamps are now consistently **UTC+8 (Beijing time)**.
+
+### Fixed
+
+- App icon: the β developer-preview badge is centered inside its badge
+  background (previously shifted left).
+- Tray icon replaced with the hand-tuned reference from the POC
+  (no longer cropped); gen-icons.sh preserves it when present.
+
 ## [Unreleased]
 
 ## [0.1.0-beta.1] — 2026-08-16
@@ -73,6 +99,7 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.1...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.2...HEAD
+[0.1.0-beta.2]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.1
 [0.1.0-beta.0]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.0

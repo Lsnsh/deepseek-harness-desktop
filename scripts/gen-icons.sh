@@ -21,22 +21,34 @@ magick -size 1024x1024 gradient:'#0b1220-#1d4ed8' \
   -draw "translate 132,232 scale 32.81,32.81 path '$DEEPSEEK_LOGO'" \
   -fill '#e2e8f0' \
   -draw "roundrectangle 768,64 976,270 60,60" \
+  "$work/base.png"
+
+# The β developer-preview badge, centered on its own canvas (208×206 to
+# match the rounded-rectangle), then composited onto the base at the badge's
+# top-left corner. -gravity center + +0+0 draws the glyph at the canvas
+# center; the +6 y-offset nudges the baseline down so the β reads optically
+# centered inside the badge.
+magick -size 208x206 xc:none \
   -fill '#0b1220' \
   -font '/System/Library/Fonts/Helvetica.ttc' \
-  -pointsize 150 -gravity northwest \
-  -annotate +790+88 'β' \
-  "$work/base.png"
+  -pointsize 150 -gravity center \
+  -annotate +0+6 'β' \
+  "$work/beta.png"
+magick "$work/base.png" "$work/beta.png" -geometry +768+64 -composite "$work/base.png"
 
 pnpm tauri icon "$work/base.png"
 rm -rf src-tauri/icons/android src-tauri/icons/ios
 
-# Monochrome tray icon: the mark alone, black on transparent, fitted to a
-# 64×48 canvas (see the original POC notes: macOS renders it as a template
-# image at a fixed 18pt height, so a wide, tight mark reads best).
-magick -size 256x192 xc:none \
-  -fill black \
-  -draw "translate 16,38 scale 9.66,9.66 path '$DEEPSEEK_LOGO'" \
-  -resize '58x44' -gravity center -background none -extent 64x48 \
-  PNG32:src-tauri/icons/tray.png
+# Monochrome tray icon. The committed tray.png is the hand-tuned reference
+# from the original POC (a 64×48 template image that macOS recolors for the
+# menu bar); regenerate from the mark below only if it is missing, to keep
+# the reference artwork stable.
+if [[ ! -f "src-tauri/icons/tray.png" ]]; then
+  magick -size 256x192 xc:none \
+    -fill black \
+    -draw "translate 16,38 scale 9.66,9.66 path '$DEEPSEEK_LOGO'" \
+    -resize '58x44' -gravity center -background none -extent 64x48 \
+    PNG32:src-tauri/icons/tray.png
+fi
 
 echo "gen-icons: icons written to src-tauri/icons/"

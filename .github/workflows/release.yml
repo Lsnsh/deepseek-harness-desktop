@@ -32,7 +32,7 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Resolve and validate the version
@@ -62,17 +62,17 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 11.21.0
 
       - name: Install Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -121,17 +121,26 @@ jobs:
           --config "${{ github.workspace }}/tauri.release.config.json"
           --bundles app,dmg
 
-      - name: Tag the updater archive with the arch
-        # No spaces in the asset name: GitHub rewrites spaces in uploaded
-        # asset names to dots, which would break the URL recorded in
-        # latest.json. Hyphens survive verbatim.
+      - name: Rename assets to the DSH-DP convention
+        # DSH-DP_{version}_{os}_{arch}.{ext} — short names that keep the
+        # extension visible in the release asset list. No spaces (GitHub
+        # would rewrite them to dots and break the latest.json URL).
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
-          cd src-tauri/target/release/bundle/macos
-          mv "DeepSeek Harness Developer Preview.app.tar.gz" "DeepSeek-Harness-Developer-Preview_aarch64.app.tar.gz"
-          mv "DeepSeek Harness Developer Preview.app.tar.gz.sig" "DeepSeek-Harness-Developer-Preview_aarch64.app.tar.gz.sig"
+          set -e
+          macos_dir="src-tauri/target/release/bundle/macos"
+          dmg_dir="src-tauri/target/release/bundle/dmg"
+          # updater archive + signature
+          cd "$macos_dir"
+          mv "DeepSeek Harness Developer Preview.app.tar.gz" "DSH-DP_${TAG}_macOS_aarch64.app.tar.gz"
+          mv "DeepSeek Harness Developer Preview.app.tar.gz.sig" "DSH-DP_${TAG}_macOS_aarch64.app.tar.gz.sig"
+          # DMG (name carries the version already)
+          cd "$OLDPWD/$dmg_dir"
+          mv "DeepSeek Harness Developer Preview_${TAG#v}_aarch64.dmg" "DSH-DP_${TAG}_macOS_aarch64.dmg"
 
       - name: Upload bundles
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-macos-aarch64
           path: |
@@ -145,12 +154,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Download all bundles
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: target-release
           merge-multiple: true
@@ -167,9 +176,9 @@ jobs:
             if [ -z "$found" ]; then echo "missing required asset: $1"; exit 1; fi
             echo "ok: $found"
           }
-          check '*_aarch64.dmg'
-          check '*_aarch64.app.tar.gz'
-          check '*_aarch64.app.tar.gz.sig'
+          check 'DSH-DP_*_macOS_aarch64.dmg'
+          check 'DSH-DP_*_macOS_aarch64.app.tar.gz'
+          check 'DSH-DP_*_macOS_aarch64.app.tar.gz.sig'
 
       - name: Assemble the updater manifest
         id: manifest
@@ -181,10 +190,10 @@ jobs:
           set -e
           bundle="src-tauri/target/release/bundle"
           base="https://github.com/$REPO/releases/download/$TAG"
-          darwin_sig_aarch64=$(cat "$(find "$bundle" -name '*_aarch64.app.tar.gz.sig' | head -1)")
-          # The asset name is hyphenated (see the build job), so it survives
-          # the GitHub upload verbatim; no URL re-encoding needed.
-          darwin_url_aarch64=$(basename "$(find "$bundle" -name '*_aarch64.app.tar.gz' | head -1)")
+          darwin_sig_aarch64=$(cat "$(find "$bundle" -name '*_macOS_aarch64.app.tar.gz.sig' | head -1)")
+          # DSH-DP asset names carry no spaces, so they survive the GitHub
+          # upload verbatim; no URL re-encoding needed.
+          darwin_url_aarch64=$(basename "$(find "$bundle" -name '*_macOS_aarch64.app.tar.gz' | head -1)")
           pub_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           jq -n \
             --arg version "$VERSION" \
@@ -209,13 +218,22 @@ jobs:
           # as a space-joined string.
           readarray -t assets < <(find "$bundle" -type f \
             \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \))
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+          darwin_dmg=$(basename "$(find "$bundle" -name '*_macOS_aarch64.dmg' | head -1)")
+          darwin_pkg=$(basename "$(find "$bundle" -name '*_macOS_aarch64.app.tar.gz' | head -1)")
           notes="DeepSeek Harness Developer Preview — $VERSION
 
           **注意：这是开发预览版本（beta），仅供内部开发与测试。**
 
           - 内置 Node.js LTS 运行时与最新版 deepseek-harness（dsh web）
           - 系统托盘 / 会话完成通知 / 自动更新
-          - 更新清单（latest.json）已附加，客户端启动时及菜单检查更新均会读取。"
+          - 更新清单（latest.json）已附加，客户端启动时及菜单检查更新均会读取。
+
+          ## 📦 下载（Download）
+
+          ### macOS · Apple Silicon（arm64）
+          - 安装包（DMG）：[$darwin_dmg]($base/$darwin_dmg)
+          - 自动更新包：[$darwin_pkg]($base/$darwin_pkg)"
           gh release create "$TAG" "${assets[@]}" --title "$TAG" --notes "$notes" --prerelease
           gh release upload "$TAG" "$bundle/latest.json" --clobber
           # Every version is a prerelease, and GitHub refuses to mark a
