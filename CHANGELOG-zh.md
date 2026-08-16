@@ -7,6 +7,20 @@
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.10] — 2026-08-16
+
+### 修复
+
+- **插件安装/卸载此前静默无效**：macOS WKWebView 没有 JS 对话框代理，
+  `window.confirm()` 会立即返回 false 且不弹窗，导致所有安装/卸载被拦下。
+  插件页改用两步武装按钮（首次点击武装并显示警告文案，再次点击确认），安装
+  真正执行并流式输出；spawn 前也确保 profile 目录存在。
+
+### 新增
+
+- Plugin Manager 已安装列表显示 GitHub 来源插件的**仓库描述与作者头像**
+  （带缓存、限流友好）；搜索卡片同样显示头像。
+
 ## [0.1.0-beta.9] — 2026-08-16
 
 ### 新增
@@ -199,7 +213,8 @@
 - 文档：双语 README（`README.md` / `README-zh.md`）与本更新日志
   （`CHANGELOG.md` / `CHANGELOG-zh.md`），MIT 许可。
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.9...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.10...HEAD
+[0.1.0-beta.10]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.7

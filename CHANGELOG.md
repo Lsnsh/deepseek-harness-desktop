@@ -8,6 +8,23 @@ prerelease suffix during development.
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.10] — 2026-08-16
+
+### Fixed
+
+- **Plugin install/uninstall worked silently or not at all**: macOS WKWebView
+  has no JS-dialog delegate, so `window.confirm()` returned false instantly
+  without showing anything, blocking every install/remove. The plugin page
+  now uses a two-step armed button (click once to arm with a warning in the
+  log area, click again to confirm), so installs actually run and stream
+  output. Also creates the profile dir before spawning `dsh plugin`.
+
+### Added
+
+- Plugin Manager installed list now shows each GitHub-sourced plugin's repo
+  description and owner avatar (cached, rate-limit friendly); search cards
+  show the owner avatar too.
+
 ## [0.1.0-beta.9] — 2026-08-16
 
 ### Added
@@ -236,7 +253,8 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.9...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.10...HEAD
+[0.1.0-beta.10]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.7
