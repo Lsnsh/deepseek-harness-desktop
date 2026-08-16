@@ -218,4 +218,11 @@ jobs:
           - 更新清单（latest.json）已附加，客户端启动时及菜单检查更新均会读取。"
           gh release create "$TAG" "${assets[@]}" --title "$TAG" --notes "$notes" --prerelease
           gh release upload "$TAG" "$bundle/latest.json" --clobber
-          echo "published $TAG"
+          # All of our releases are prereleases, and GitHub's /releases/latest
+          # endpoint only follows a release marked "latest". Mark this one so
+          # the client's updater endpoint (…/releases/latest/download/latest.json)
+          # resolves to it; the previous latest release loses the flag.
+          release_id=$(gh release view "$TAG" --json id --jq '.id')
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            -f make_latest=true >/dev/null
+          echo "published $TAG (marked latest)"
