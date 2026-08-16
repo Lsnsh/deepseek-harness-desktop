@@ -31,6 +31,7 @@ import { createHash } from 'node:crypto'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { downloadNode, nodeBinName, NODE_VERSION } from './download-node.mjs'
+import { downloadPnpm } from './download-pnpm.mjs'
 
 const DESKTOP_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const RUNTIME_DIR = join(DESKTOP_ROOT, 'resources', 'runtime')
@@ -341,6 +342,8 @@ export function assembleRuntime() {
   pruneApp()
   const node = downloadNode()
   stripNodeBin(node)
+  // pnpm for `dsh plugin` support (runs on the bundled Node).
+  const pnpmEntry = downloadPnpm()
   const modulesHash = hashTree(join(APP_DIR, 'node_modules'))
   writeFileSync(join(RUNTIME_DIR, 'manifest.json'), JSON.stringify({
     platform: `${process.platform}-${process.arch}`,
@@ -348,6 +351,7 @@ export function assembleRuntime() {
     nodeBin: nodeBinName(),
     dsh: dshVersion(),
     appEntry: 'app/lib/bin.js',
+    pnpmEntry: relative(RUNTIME_DIR, pnpmEntry),
     nodeModulesHash: modulesHash,
     assembledAt: new Date().toISOString(),
   }, null, 2) + '\n')
