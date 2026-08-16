@@ -1,6 +1,6 @@
 [package]
 name = "deepseek-harness-desktop"
-version = "0.1.0-beta.0"
+version = "0.1.0-beta.1"
 description = "DeepSeek Harness Developer Preview — Tauri v2 desktop shell over the dsh web server (bundled Node.js runtime + harness)"
 authors = ["DeepSeek Harness Desktop"]
 edition = "2021"

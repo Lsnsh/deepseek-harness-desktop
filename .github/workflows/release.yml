@@ -122,10 +122,13 @@ jobs:
           --bundles app,dmg
 
       - name: Tag the updater archive with the arch
+        # No spaces in the asset name: GitHub rewrites spaces in uploaded
+        # asset names to dots, which would break the URL recorded in
+        # latest.json. Hyphens survive verbatim.
         run: |
           cd src-tauri/target/release/bundle/macos
-          mv "DeepSeek Harness Developer Preview.app.tar.gz" "DeepSeek Harness Developer Preview_aarch64.app.tar.gz"
-          mv "DeepSeek Harness Developer Preview.app.tar.gz.sig" "DeepSeek Harness Developer Preview_aarch64.app.tar.gz.sig"
+          mv "DeepSeek Harness Developer Preview.app.tar.gz" "DeepSeek-Harness-Developer-Preview_aarch64.app.tar.gz"
+          mv "DeepSeek Harness Developer Preview.app.tar.gz.sig" "DeepSeek-Harness-Developer-Preview_aarch64.app.tar.gz.sig"
 
       - name: Upload bundles
         uses: actions/upload-artifact@v4
@@ -179,9 +182,9 @@ jobs:
           bundle="src-tauri/target/release/bundle"
           base="https://github.com/$REPO/releases/download/$TAG"
           darwin_sig_aarch64=$(cat "$(find "$bundle" -name '*_aarch64.app.tar.gz.sig' | head -1)")
-          # GitHub asset URLs percent-encode spaces ("DeepSeek Harness…").
+          # The asset name is hyphenated (see the build job), so it survives
+          # the GitHub upload verbatim; no URL re-encoding needed.
           darwin_url_aarch64=$(basename "$(find "$bundle" -name '*_aarch64.app.tar.gz' | head -1)")
-          darwin_url_aarch64="${darwin_url_aarch64// /%20}"
           pub_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           jq -n \
             --arg version "$VERSION" \

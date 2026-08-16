@@ -8,6 +8,21 @@ prerelease suffix during development.
 
 ## [Unreleased]
 
+## [0.1.0-beta.1] — 2026-08-16
+
+### Fixed
+
+- Updater manifest URL: the release workflow now uploads the updater
+  archive under a hyphenated asset name. GitHub rewrites spaces in
+  uploaded asset names to dots, which made the `%20`-encoded URL in
+  `latest.json` return 404 and silently broke auto-update.
+
+### Changed
+
+- Release workflow builds Apple Silicon only (`macos-latest`) to keep
+  the CI/CD loop fast; the updater manifest is `darwin-aarch64` only.
+
+
 ### Added
 
 - `check-upstream` workflow: scheduled daily check of the npm registry for a
@@ -58,5 +73,6 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.0...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.1...HEAD
+[0.1.0-beta.1]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.1
 [0.1.0-beta.0]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.0

@@ -7,6 +7,20 @@
 
 ## [Unreleased]
 
+## [0.1.0-beta.1] — 2026-08-16
+
+### 修复
+
+- 更新清单 URL：发布工作流改用连字符资产名上传更新包。GitHub 会把上传
+  资产名中的空格改写为点号，导致 `latest.json` 中 `%20` 编码的 URL
+  返回 404，静默破坏自动更新。
+
+### 变更
+
+- 发布工作流仅构建 Apple Silicon（`macos-latest`），加快 CI/CD 循环；
+  更新清单仅含 `darwin-aarch64`。
+
+
 ### 新增
 
 - `check-upstream` 工作流：每天定时检查 npm 上 `@deepseek-ai/dsh` 是否有新版本；
@@ -51,5 +65,6 @@
 - 文档：双语 README（`README.md` / `README-zh.md`）与本更新日志
   （`CHANGELOG.md` / `CHANGELOG-zh.md`），MIT 许可。
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.0...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.1...HEAD
+[0.1.0-beta.1]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.1
 [0.1.0-beta.0]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.0
