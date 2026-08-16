@@ -218,11 +218,16 @@ jobs:
           - 更新清单（latest.json）已附加，客户端启动时及菜单检查更新均会读取。"
           gh release create "$TAG" "${assets[@]}" --title "$TAG" --notes "$notes" --prerelease
           gh release upload "$TAG" "$bundle/latest.json" --clobber
-          # All of our releases are prereleases, and GitHub's /releases/latest
-          # endpoint only follows a release marked "latest". Mark this one so
-          # the client's updater endpoint (…/releases/latest/download/latest.json)
-          # resolves to it; the previous latest release loses the flag.
-          release_id=$(gh release view "$TAG" --json id --jq '.id')
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
-            -f make_latest=true >/dev/null
-          echo "published $TAG (marked latest)"
+          # Every version is a prerelease, and GitHub refuses to mark a
+          # prerelease as "latest", so /releases/latest never resolves for us.
+          # The client therefore reads a fixed "updater-latest" tag (a plain,
+          # non-prerelease release) whose latest.json asset we overwrite with
+          # the newest manifest on every publish.
+          if gh release view updater-latest >/dev/null 2>&1; then
+            gh release upload updater-latest "$bundle/latest.json" --clobber
+          else
+            gh release create updater-latest "$bundle/latest.json" \
+              --title "updater-latest" \
+              --notes "Updater pointer: the newest latest.json update manifest lives here (overwritten on every release)."
+          fi
+          echo "published $TAG (+ updater-latest pointer)"
