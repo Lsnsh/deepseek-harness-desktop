@@ -194,13 +194,15 @@ export function pruneApp() {
   }
   sweep(nm)
   // 4) Dead weight verified by a runtime module trace of the web profile
-  //    (boot + root GET): TypeScript declarations are never loaded, and the
-  //    OpenTelemetry metrics/trace SDKs are not in the logs-only load path.
+  //    (boot + root GET) and by a boot smoke test: TypeScript declarations
+  //    are never loaded, and @opentelemetry/sdk-trace is not required by any
+  //    encoder in the logs-only telemetry path. (sdk-metrics IS required via
+  //    otlp-transformer's metrics-serializer and must stay.)
   removeFiles(nm, (p) => p.endsWith('.d.ts'))
-  for (const dir of ['@types', '@opentelemetry/sdk-metrics', '@opentelemetry/sdk-trace']) {
+  for (const dir of ['@types', '@opentelemetry/sdk-trace']) {
     rmSync(join(nm, dir), { recursive: true, force: true })
   }
-  console.log(`prune: removed ${removed} junk files/dirs (${(removedBytes / 1024 / 1024).toFixed(1)} MiB) + .d.ts/@types/otel-metrics-trace`)
+  console.log(`prune: removed ${removed} junk files/dirs (${(removedBytes / 1024 / 1024).toFixed(1)} MiB) + .d.ts/@types/sdk-trace`)
 }
 
 /** Remove every file under `dir` matching `pred` (relative path). */
