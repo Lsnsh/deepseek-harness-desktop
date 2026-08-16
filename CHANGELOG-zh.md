@@ -7,6 +7,17 @@
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.4] — 2026-08-16
+
+### 新增
+
+- **Plugin Manager**（菜单「Plugin Manager…」）：管理 dsh 插件的原生窗口——
+  列出 web profile 已安装插件（含卸载按钮）、搜索 GitHub 上带 `dsh-plugin`
+  标签的仓库（带缓存）、通过 `dsh plugin --profile web add <spec>` 安装。
+  安装/卸载后提示「重启 Web 服务生效」。
+- 开启 `withGlobalTauri`，让本地插件管理页可调用命令；远端 harness GUI 仍
+  无 IPC（capabilities 仍仅限 main/plugins 窗口）。
+
 ## [0.1.0-beta.3] — 2026-08-16
 
 ### 新增
@@ -98,7 +109,8 @@
 - 文档：双语 README（`README.md` / `README-zh.md`）与本更新日志
   （`CHANGELOG.md` / `CHANGELOG-zh.md`），MIT 许可。
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.3...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.4...HEAD
+[0.1.0-beta.4]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.1

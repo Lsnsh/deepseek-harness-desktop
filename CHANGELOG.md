@@ -8,6 +8,19 @@ prerelease suffix during development.
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.4] — 2026-08-16
+
+### Added
+
+- **Plugin Manager** (menu "Plugin Manager…"): a native window to manage
+  dsh plugins — lists plugins installed in the web profile (with remove
+  buttons), searches GitHub for `topic:dsh-plugin` repositories (cached),
+  and installs by `dsh plugin --profile web add <spec>`. Installs/removes
+  surface the "restart web server to take effect" hint.
+- `withGlobalTauri` enabled so the local plugin-manager page can invoke
+  commands; the remote harness GUI remains IPC-less (capabilities still
+  scope to the main/plugins windows).
+
 ## [0.1.0-beta.3] — 2026-08-16
 
 ### Added
@@ -113,7 +126,8 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.3...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.4...HEAD
+[0.1.0-beta.4]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.1
