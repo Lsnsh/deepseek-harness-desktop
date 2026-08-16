@@ -8,6 +8,20 @@ prerelease suffix during development.
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.3] — 2026-08-16
+
+### Added
+
+- **Notification click jumps to the finished session** (macOS): clicking a
+  session-completion notification (or the dock icon with an unviewed
+  completion) navigates the GUI to that conversation via `?jump=<sessionId>`
+  and the frontend's own persisted current-session key.
+- **Restart Web Server** menu/tray action — restarts the bundled dsh web
+  server, required for plugin installs/removals (bundle layers compose at
+  boot) to take effect.
+- **Bundled pnpm** (runtime, `pnpm/bin/pnpm.cjs` on the bundled Node) —
+  foundation for `dsh plugin` support; the runtime archive grows ~4.5 MiB.
+
 ## [0.1.0-beta.2] — 2026-08-16
 
 ### Changed
@@ -99,7 +113,8 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.2...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.3...HEAD
+[0.1.0-beta.3]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.1
 [0.1.0-beta.0]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.0
