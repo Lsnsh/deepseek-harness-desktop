@@ -7,6 +7,18 @@
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.5] — 2026-08-16
+
+### 新增
+
+- **Plugin Manager 加固**：
+  - 安装前 manifest 校验：GitHub 仓库来源的插件在安装前会拉取原始
+    `package.json` 校验 `dsh.bundle` / `dsh.client` 契约——裸仓库直接拒绝并
+    返回明确错误。
+  - Plugin Manager 安装确认弹窗（仓库名、星数、描述、第三方代码执行警告）。
+  - 安装/卸载审计日志：`$DSH_HOME/desktop-audit.log`（UTC+8、动作、插件、结果）。
+- README：补充 Plugin Manager 说明；路线图中该项标记为已实现（MVP）。
+
 ## [0.1.0-beta.4] — 2026-08-16
 
 ### 新增
@@ -109,7 +121,8 @@
 - 文档：双语 README（`README.md` / `README-zh.md`）与本更新日志
   （`CHANGELOG.md` / `CHANGELOG-zh.md`），MIT 许可。
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.4...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.5...HEAD
+[0.1.0-beta.5]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.5
 [0.1.0-beta.4]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.2
