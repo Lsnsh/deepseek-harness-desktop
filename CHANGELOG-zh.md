@@ -13,7 +13,7 @@
   有更新时自动创建/更新「依赖升级 PR」。
 - CI 工作流：每次推送/PR 执行前端构建、运行时装配、运行时冒烟测试与
   `cargo check`。
-- 发布工作流：在 macOS（arm64 + x64）构建并签名应用，发布带
+- 发布工作流：在 macOS（Apple Silicon）构建并签名应用，发布带
   `vX.Y.Z-beta.N` 的 pre-release，并附上签名后的 `latest.json` 更新清单。
 
 ## [0.1.0-beta.0] — 2026-08-16

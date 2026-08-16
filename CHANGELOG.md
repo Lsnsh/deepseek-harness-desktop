@@ -14,7 +14,7 @@ prerelease suffix during development.
   newer `@deepseek-ai/dsh`; opens/updates a dependency-bump PR when one exists.
 - CI workflow: frontend build, runtime assembly, runtime smoke test, and
   `cargo check` on every push/PR.
-- Release workflow: builds and signs the macOS app (arm64 + x64), publishes a
+- Release workflow: builds and signs the macOS app (Apple Silicon), publishes a
   `vX.Y.Z-beta.N` pre-release with the signed `latest.json` updater manifest.
 
 ## [0.1.0-beta.0] — 2026-08-16

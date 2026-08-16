@@ -56,21 +56,10 @@ jobs:
 
   build:
     needs: [version]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # The bundled Node runtime is arch-specific (runtime.tar.gz carries
-          # one binary) and the updater resolves the manifest platform key at
-          # compile time (darwin-aarch64 / darwin-x86_64), so each arch ships
-          # its own app bundle, DMG, and updater archive.
-          - os: macos-14
-            arch: aarch64
-            artifact: desktop-macos-aarch64
-          - os: macos-15-intel
-            arch: x64
-            artifact: desktop-macos-x64
-    runs-on: ${{ matrix.os }}
+    # Internal development target: Apple Silicon only (macos-latest is
+    # arm64), to keep the CI/CD loop as fast as possible. The bundled Node
+    # runtime is arch-specific, so the updater manifest is darwin-aarch64.
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -135,13 +124,13 @@ jobs:
       - name: Tag the updater archive with the arch
         run: |
           cd src-tauri/target/release/bundle/macos
-          mv "DeepSeek Harness Developer Preview.app.tar.gz" "DeepSeek Harness Developer Preview_${{ matrix.arch }}.app.tar.gz"
-          mv "DeepSeek Harness Developer Preview.app.tar.gz.sig" "DeepSeek Harness Developer Preview_${{ matrix.arch }}.app.tar.gz.sig"
+          mv "DeepSeek Harness Developer Preview.app.tar.gz" "DeepSeek Harness Developer Preview_aarch64.app.tar.gz"
+          mv "DeepSeek Harness Developer Preview.app.tar.gz.sig" "DeepSeek Harness Developer Preview_aarch64.app.tar.gz.sig"
 
       - name: Upload bundles
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: desktop-macos-aarch64
           path: |
             src-tauri/target/release/bundle/
             !src-tauri/target/release/bundle/macos/DeepSeek Harness Developer Preview.app/
@@ -176,11 +165,8 @@ jobs:
             echo "ok: $found"
           }
           check '*_aarch64.dmg'
-          check '*_x64.dmg'
           check '*_aarch64.app.tar.gz'
           check '*_aarch64.app.tar.gz.sig'
-          check '*_x64.app.tar.gz'
-          check '*_x64.app.tar.gz.sig'
 
       - name: Assemble the updater manifest
         id: manifest
@@ -193,24 +179,18 @@ jobs:
           bundle="src-tauri/target/release/bundle"
           base="https://github.com/$REPO/releases/download/$TAG"
           darwin_sig_aarch64=$(cat "$(find "$bundle" -name '*_aarch64.app.tar.gz.sig' | head -1)")
-          darwin_sig_x64=$(cat "$(find "$bundle" -name '*_x64.app.tar.gz.sig' | head -1)")
           # GitHub asset URLs percent-encode spaces ("DeepSeek Harness…").
           darwin_url_aarch64=$(basename "$(find "$bundle" -name '*_aarch64.app.tar.gz' | head -1)")
-          darwin_url_x64=$(basename "$(find "$bundle" -name '*_x64.app.tar.gz' | head -1)")
           darwin_url_aarch64="${darwin_url_aarch64// /%20}"
-          darwin_url_x64="${darwin_url_x64// /%20}"
           pub_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           jq -n \
             --arg version "$VERSION" \
             --arg pub_date "$pub_date" \
             --arg darwin_sig_aarch64 "$darwin_sig_aarch64" \
             --arg darwin_url_aarch64 "$base/$darwin_url_aarch64" \
-            --arg darwin_sig_x64 "$darwin_sig_x64" \
-            --arg darwin_url_x64 "$base/$darwin_url_x64" \
             '{version:$version, notes:"DeepSeek Harness Developer Preview", pub_date:$pub_date,
               platforms:{
-                "darwin-aarch64":{signature:$darwin_sig_aarch64,url:$darwin_url_aarch64},
-                "darwin-x86_64":{signature:$darwin_sig_x64,url:$darwin_url_x64}
+                "darwin-aarch64":{signature:$darwin_sig_aarch64,url:$darwin_url_aarch64}
               }}' > "$bundle/latest.json"
           echo "latest.json:"
           cat "$bundle/latest.json"

@@ -22,7 +22,7 @@
 - 🔄 **自动更新** —— 通过 GitHub Releases 分发，启动时静默检查，菜单可手动检查
 
 > ⚠️ 这是**社区维护的第三方桌面客户端**，与 DeepSeek 官方无关，仅供开发与研究使用。
-> 当前处于 **beta 开发预览阶段**，仅支持 **macOS**（Apple Silicon / Intel）。
+> 当前处于 **beta 开发预览阶段**，仅支持 **macOS（Apple Silicon）**。
 
 ## 特性
 
@@ -113,7 +113,7 @@ pnpm run signer-key
 
 1. 更新 `package.json` 与 `src-tauri/Cargo.toml` 的版本号（必须带 `-beta` 后缀），更新 `CHANGELOG.md` / `CHANGELOG-zh.md`，提交推送。
 2. 在 GitHub Actions 手动触发 `release` 工作流（或填写版本号覆盖）。
-3. 工作流在 macOS arm64 / x64 上分别构建、签名、发布 GitHub Release（`vX.Y.Z-beta.N`，pre-release），并附加 `latest.json` 更新清单。
+3. 工作流在 macOS（Apple Silicon，`macos-latest`）上构建、签名、发布 GitHub Release（`vX.Y.Z-beta.N`，pre-release），并附加 `latest.json` 更新清单。
 4. 客户端启动时与菜单「Check for Updates…」读取该清单完成自动更新。
 
 ### 上游同步

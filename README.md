@@ -22,7 +22,7 @@
 - 🔄 **Auto-update** — distributed via GitHub Releases; silent startup check plus a manual menu item
 
 > ⚠️ This is a **community-maintained third-party desktop client**, not affiliated with DeepSeek. For development and research use only.
-> Currently in **beta (Developer Preview)** and supports **macOS only** (Apple Silicon / Intel).
+> Currently in **beta (Developer Preview)** and supports **macOS (Apple Silicon) only**.
 
 ## Features
 
@@ -39,7 +39,7 @@
 
 ## Download & install
 
-Grab the DMG (or .app) for your architecture from the [Releases](https://github.com/Lsnsh/deepseek-harness-desktop/releases) page.
+Grab the DMG (or .app) from the [Releases](https://github.com/Lsnsh/deepseek-harness-desktop/releases) page (Apple Silicon builds).
 
 > macOS builds are unsigned/un-notarized: on first launch allow the app in **System Settings → Privacy & Security**, or right-click → Open.
 
@@ -102,7 +102,7 @@ pnpm run signer-key
 
 1. Bump the version in `package.json` and `src-tauri/Cargo.toml` (must carry a `-beta` suffix) and update `CHANGELOG.md` / `CHANGELOG-zh.md`; commit and push.
 2. Trigger the `release` workflow manually (optionally overriding the version).
-3. The workflow builds on macOS arm64 + x64, signs, and publishes a pre-release `vX.Y.Z-beta.N` with the `latest.json` update manifest attached.
+3. The workflow builds on macOS (Apple Silicon, `macos-latest`), signs, and publishes a pre-release `vX.Y.Z-beta.N` with the `latest.json` update manifest attached.
 4. Clients pick the manifest up at startup and via "Check for Updates…".
 
 ### Upstream sync
