@@ -55,10 +55,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           node scripts/check-upstream.mjs --apply
+          # Keep the lockfile in sync with the bumped manifest, or the PR's CI
+          # fails on `pnpm install --frozen-lockfile`.
+          pnpm install --lockfile-only --no-frozen-lockfile
           git config user.name "dsh-desktop[bot]"
           git config user.email "dsh-desktop[bot]@users.noreply.github.com"
           git checkout -b deps/dsh-upstream
-          git add package.json
+          git add package.json pnpm-lock.yaml
           git commit -m "deps: bump @deepseek-ai/dsh to $(node -p "require('./package.json').dependencies['@deepseek-ai/dsh']")" || true
           git push -f origin deps/dsh-upstream
           # gh pr create uses a GraphQL mutation that GITHUB_TOKEN cannot call
