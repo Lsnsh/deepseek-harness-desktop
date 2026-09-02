@@ -65,9 +65,16 @@ export function installApp() {
       dependencies: { '@deepseek-ai/dsh': version },
     }, null, 2) + '\n')
     console.log(`assemble: npm install @deepseek-ai/dsh@${version} (production)`)
+    // npm's dependency resolution for the dsh tree needs a ~3.8 GiB peak RSS
+    // (measured on 0.1.1-rc.2); Node's default heap on the 7 GB GitHub macOS
+    // runners aborts with an OOM crash, so raise the ceiling explicitly.
+    const nodeOptions = [process.env.NODE_OPTIONS, '--max-old-space-size=4608']
+      .filter(Boolean)
+      .join(' ')
     execFileSync('npm', ['install', '--omit=dev', '--no-audit', '--no-fund', '--no-package-lock'], {
       cwd: work,
       stdio: 'inherit',
+      env: { ...process.env, NODE_OPTIONS: nodeOptions },
     })
     const app = join(work, 'node_modules', '@deepseek-ai', 'dsh')
     for (const required of ['lib/bin.js', 'package.json']) {
