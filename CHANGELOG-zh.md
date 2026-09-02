@@ -7,6 +7,23 @@
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.11] — 2026-09-03
+
+### 变更
+
+- **内置 dsh 由 0.1.0-rc.6 升级到 0.1.1-rc.2**（上游共 4 个版本），要点：
+  - 多模态：DeepSeek 适配器支持原生图片请求，`/goal`、`/plan` 支持图文输入，
+    `@` 菜单可引用文件与会话，图片经 Files API 上传；新增
+    `DeepSeek-V4-Flash-Vision-Exp` 视觉模型。
+  - 子代理：Claude Code / Codex 子代理可作为 Profile Bundle 按需安装，并接入
+    任务面板（Job Panel）。
+  - DeepSeek 支持可选 `low` 推理强度（默认仍为 `high`）；`web_search` 支持
+    并发查询。
+  - 上游修复：大历史分页栈溢出、max-tokens 截断后会话不可用、超大/累积图片
+    载荷请求失败、Bubblewrap 沙箱逃逸。
+- 工程：定时上游检查现在能稳定自动开出依赖升级 PR（同步 lockfile、改用
+  REST API 创建）——本次 dsh 升级即由它端到端产出。
+
 ## [0.1.0-beta.10] — 2026-08-16
 
 ### 修复
@@ -213,7 +230,8 @@
 - 文档：双语 README（`README.md` / `README-zh.md`）与本更新日志
   （`CHANGELOG.md` / `CHANGELOG-zh.md`），MIT 许可。
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.10...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.11...HEAD
+[0.1.0-beta.11]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.8
