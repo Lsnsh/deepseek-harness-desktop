@@ -61,14 +61,16 @@ jobs:
           git add package.json
           git commit -m "deps: bump @deepseek-ai/dsh to $(node -p "require('./package.json').dependencies['@deepseek-ai/dsh']")" || true
           git push -f origin deps/dsh-upstream
-          # Reuse an open PR if one exists.
+          # gh pr create uses a GraphQL mutation that GITHUB_TOKEN cannot call
+          # ("Resource not accessible by integration"), so go through the REST
+          # API instead and let real failures fail the step.
+          title="deps: bump @deepseek-ai/dsh to $(node -p "require('./package.json').dependencies['@deepseek-ai/dsh']")"
+          body="Automated dependency bump for the scheduled upstream check."
           existing=$(gh pr list --head deps/dsh-upstream --json number --jq '.[0].number' 2>/dev/null || true)
           if [ -n "$existing" ]; then
-            gh pr edit "$existing" --body "Automated dependency bump for the scheduled upstream check." >/dev/null
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/pulls/$existing" -f title="$title" -f body="$body" >/dev/null
             echo "updated PR #$existing"
           else
-            gh pr create \
-              --base main --head deps/dsh-upstream \
-              --title "deps: bump @deepseek-ai/dsh to $(node -p "require('./package.json').dependencies['@deepseek-ai/dsh']")" \
-              --body "Automated dependency bump for the scheduled upstream check." || true
+            number=$(gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" -f title="$title" -f body="$body" -f head="deps/dsh-upstream" -f base="main" --jq '.number')
+            echo "opened PR #$number"
           fi
