@@ -32,6 +32,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { downloadNode, nodeBinName, NODE_VERSION } from './download-node.mjs'
 import { downloadPnpm } from './download-pnpm.mjs'
+import { patchConversationClient, patchRuntimeFlushFloor } from './patch-runtime.mjs'
 
 const DESKTOP_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const RUNTIME_DIR = join(DESKTOP_ROOT, 'resources', 'runtime')
@@ -107,6 +108,24 @@ export function installApp() {
     // never invokes those bins (it spawns node with the CLI entry directly),
     // so drop the whole directory instead of repairing links.
     rmSync(join(APP_DIR, 'node_modules', '.bin'), { recursive: true, force: true })
+    // Ship the web-GUI energy fix: the reasoning-row follow-scroll patch on
+    // the conversation plugin's served client bundle (see patch-runtime.mjs).
+    // This runs before the structural hash + manifest below, so the cache
+    // key reflects the patched tree.
+    const conversationClient = join(APP_DIR, 'node_modules', '@deepseek-ai', 'dsh-client-ui-conversation', 'lib', 'client.js')
+    if (existsSync(conversationClient)) {
+      const { applied } = patchConversationClient(conversationClient)
+      console.log(`assemble: conversation client ${applied ? 'patched' : 'already patched'} (reasoning-row scroll fix)`)
+    } else {
+      console.warn('assemble: dsh-client-ui-conversation client bundle not found; skipping reasoning-row patch')
+    }
+    const runtimeClient = join(APP_DIR, 'node_modules', '@deepseek-ai', 'dsh-client-runtime', 'lib', 'client.js')
+    if (existsSync(runtimeClient)) {
+      const { applied } = patchRuntimeFlushFloor(runtimeClient)
+      console.log(`assemble: runtime client ${applied ? 'patched' : 'already patched'} (frame-flush floor)`)
+    } else {
+      console.warn('assemble: dsh-client-runtime client bundle not found; skipping frame-flush floor patch')
+    }
     // Any other files the package ships (README etc.) are not needed.
     console.log(`assemble: installed @deepseek-ai/dsh@${version} into ${relative(DESKTOP_ROOT, APP_DIR)}`)
   } finally {
