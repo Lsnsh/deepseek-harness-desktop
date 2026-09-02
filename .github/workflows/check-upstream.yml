@@ -35,9 +35,15 @@ jobs:
 
       - name: Check for a newer @deepseek-ai/dsh
         id: check
+        # The script uses exit code 1 to mean "update available" (the PR step
+        # below handles it), so capture the code before bash -e can abort.
         run: |
-          node scripts/check-upstream.mjs
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          exit_code=0
+          node scripts/check-upstream.mjs || exit_code=$?
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          if [ "$exit_code" -ge 2 ]; then
+            exit "$exit_code"
+          fi
 
       - name: No update available
         if: steps.check.outputs.exit_code == '0'
