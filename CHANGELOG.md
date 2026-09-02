@@ -8,6 +8,25 @@ prerelease suffix during development.
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.11] — 2026-09-03
+
+### Changed
+
+- **Bundled dsh updated 0.1.0-rc.6 → 0.1.1-rc.2** (four upstream releases), highlights:
+  - Multimodal: native image requests for DeepSeek adapters, image input for
+    `/goal` and `/plan`, `@` menu file & session references, image uploads via
+    the Files API, and the new `DeepSeek-V4-Flash-Vision-Exp` vision model.
+  - Subagents: Claude Code / Codex subagents installable as Profile Bundles
+    and surfaced in the Job Panel.
+  - DeepSeek supports an optional `low` reasoning effort (default stays
+    `high`); `web_search` runs concurrent queries.
+  - Fixed upstream: stack overflow in large-history pagination, sessions
+    unusable after max-tokens truncation, oversized/accumulated image payload
+    request failures, and a Bubblewrap sandbox escape.
+- CI: the scheduled upstream check now reliably opens the dependency-bump PR
+  (lockfile kept in sync, PR created via the REST API) — the dsh bump in this
+  release is the first one it produced end to end.
+
 ## [0.1.0-beta.10] — 2026-08-16
 
 ### Fixed
@@ -253,7 +272,8 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.10...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.11...HEAD
+[0.1.0-beta.11]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.8
