@@ -11,19 +11,20 @@
       --fg: #dbe4f0;
       --muted: #8ba0b8;
       --danger: #ff6b6b;
+      --accent: #4f8cff;
     }
     * { box-sizing: border-box; }
-    html, body { height: 100%; }
+    html, body { min-height: 100%; }
     body {
       margin: 0;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
       background: radial-gradient(1200px 800px at 50% -10%, #2a1420 0%, var(--bg) 55%);
       color: var(--fg);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     }
-    .wrap { max-width: 560px; padding: 32px; text-align: left; }
+    .wrap { max-width: 720px; padding: 32px; }
     .icon { font-size: 34px; line-height: 1; margin-bottom: 14px; }
     h1 { font-size: 19px; font-weight: 600; margin: 0 0 10px; }
     p { color: var(--muted); font-size: 13.5px; line-height: 1.6; margin: 0 0 10px; }
@@ -34,23 +35,164 @@
       border-radius: 5px;
       font-size: 12px;
       color: var(--fg);
+      word-break: break-all;
     }
     .danger { color: var(--danger); }
+    .reason {
+      display: none;
+      margin: 0 0 14px;
+      padding: 10px 14px;
+      border: 1px solid rgba(255,107,107,.35);
+      background: rgba(255,107,107,.08);
+      border-radius: 8px;
+      color: var(--fg);
+      font-size: 13.5px;
+      line-height: 1.6;
+    }
+    .actions { margin: 4px 0 18px; display: flex; gap: 10px; }
+    button {
+      font: inherit;
+      font-size: 13px;
+      padding: 7px 16px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(79,140,255,.16);
+      color: var(--fg);
+      cursor: pointer;
+    }
+    button:hover { background: rgba(79,140,255,.28); }
+    button:disabled { opacity: .5; cursor: default; }
+    #logbox { display: none; margin: 0 0 14px; }
+    #logbox h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 8px; }
+    pre {
+      max-height: 260px;
+      overflow: auto;
+      background: rgba(0,0,0,.35);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: var(--fg);
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin: 0;
+      user-select: text;
+      -webkit-user-select: text;
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="icon">⚠️</div>
     <h1>本地服务启动失败</h1>
+    <div class="reason" id="reason"></div>
     <p>DeepSeek Harness 无法启动它内置的本地服务。可能的原因：</p>
     <ul>
       <li>系统环境不兼容（例如 macOS 上被 Gatekeeper 拦截）</li>
       <li><code>$HOME</code> 目录不可写，或 <code>DSH_HOME</code> 指向了不可写位置</li>
+      <li><code>~/.dsh</code> 数据目录由更高版本的 dsh 写入过（格式迁移），当前内置版本无法读取</li>
       <li>磁盘空间不足，或杀毒软件拦截了内置的运行时</li>
     </ul>
+    <div class="actions">
+      <button id="retry">重试启动</button>
+      <button id="copy">复制诊断信息</button>
+    </div>
     <p>请关闭应用后重试。如果问题持续，可查看日志文件定位原因：</p>
-    <p><code id="logpath">（日志路径见应用输出）</code></p>
-    <p class="danger">注意：关闭此窗口将同时停止后台服务。</p>
+    <p><code id="logpath">（加载中…）</code></p>
+    <div id="logbox">
+      <h2>dsh-web.log 末尾</h2>
+      <pre id="logtail"></pre>
+    </div>
+    <p class="danger">注意：关闭此窗口只是隐藏应用（后台服务保持当前状态）；完全退出请使用菜单 DeepSeek Harness → Quit（⌘Q）。</p>
   </div>
+  <script>
+    // Local pages run inside the webview with the Tauri IPC bridge; guard for
+    // the rare case it is unavailable (plain-browser preview).
+    const invoke = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
+    let diagnosticsText = '';
+
+    function parts(d) {
+      const arr = [];
+      if (d.reason) arr.push('失败原因: ' + d.reason);
+      if (d.dsh_version) arr.push('内置 dsh: v' + d.dsh_version);
+      arr.push('应用版本: v' + (d.app_version || 'unknown'));
+      return arr;
+    }
+
+    function renderReason(d) {
+      const el = document.getElementById('reason');
+      const text = parts(d).join(' · ');
+      if (text) {
+        el.textContent = text;
+        el.style.display = '';
+      }
+    }
+
+    function renderLog(d) {
+      const path = d.log_path || '（日志不可用）';
+      diagnosticsText = [
+        'DeepSeek Harness 启动失败诊断',
+        ...parts(d),
+        '日志路径: ' + path,
+        '--- dsh-web.log 末尾 ---',
+        (d.log_tail && d.log_tail.length) ? d.log_tail.join('\n') : '（日志为空或不可读）',
+      ].join('\n');
+      if (d.log_tail && d.log_tail.length) {
+        document.getElementById('logtail').textContent = d.log_tail.join('\n');
+        document.getElementById('logbox').style.display = '';
+        document.getElementById('logpath').textContent = path;
+      } else {
+        document.getElementById('logpath').textContent = path + '（暂无内容）';
+      }
+    }
+
+    async function load() {
+      document.getElementById('logpath').textContent = '（加载中…）';
+      if (!invoke) {
+        document.getElementById('logpath').textContent = '（诊断接口不可用）';
+        return;
+      }
+      try {
+        const d = await invoke('server_diagnostics');
+        renderReason(d);
+        renderLog(d);
+      } catch (e) {
+        document.getElementById('logpath').textContent = '（诊断读取失败：' + e + '）';
+      }
+    }
+
+    document.getElementById('retry').addEventListener('click', async (event) => {
+      const btn = event.currentTarget;
+      btn.disabled = true;
+      btn.textContent = '重启中…';
+      try {
+        await invoke('retry_server');
+        // The supervisor navigates to the splash / GUI (or back here with a
+        // fresh reason) once the new server is up — nothing else to do.
+      } catch (e) {
+        btn.textContent = '重启失败：' + e;
+        return;
+      }
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '重试启动';
+      }, 4000);
+    });
+
+    document.getElementById('copy').addEventListener('click', async (event) => {
+      const btn = event.currentTarget;
+      const previous = btn.textContent;
+      try {
+        await navigator.clipboard.writeText(diagnosticsText || '（尚无诊断信息）');
+        btn.textContent = '已复制 ✓';
+      } catch (e) {
+        btn.textContent = '复制失败';
+      }
+      setTimeout(() => { btn.textContent = previous; }, 2500);
+    });
+
+    load();
+  </script>
 </body>
 </html>

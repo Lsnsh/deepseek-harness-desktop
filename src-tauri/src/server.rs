@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Url, WebviewWindow};
 
-use crate::{local_app_url, ServerChild, ServerOrigin};
+use crate::{local_app_url, ServerChild, ServerOrigin, StartupError};
 
 /// How long the server may take to print its readiness URL before we give up.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
@@ -218,7 +218,11 @@ pub fn spawn_server(app: &AppHandle) -> Result<SpawnedServer, String> {
         // --host is pinned explicitly: the shell must never silently serve
         // the (unauthenticated) harness GUI on anything but loopback, even if
         // a future dsh release changes its default bind address.
-        .args(["--profile", "web", "--host", "127.0.0.1", "--port", "0"])
+        // --no-open: dsh (0.1.1-rc.2+) opens the served URL in the user's
+        // default browser on boot; the desktop window IS the UI, so opening
+        // a second browser surface on every launch is noise (and confusing
+        // on attach flows).
+        .args(["--profile", "web", "--host", "127.0.0.1", "--port", "0", "--no-open"])
         .current_dir(home_dir())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -227,6 +231,18 @@ pub fn spawn_server(app: &AppHandle) -> Result<SpawnedServer, String> {
         .spawn()
         .map_err(|err| format!("failed to spawn {}: {err}", node_path.display()))?;
     Ok(SpawnedServer { child })
+}
+
+/// Record one startup/supervision failure reason for the error page (the
+/// page reads it via the `server_diagnostics` command). Cleared on every new
+/// spawn.
+pub(crate) fn record_startup_error(app: &AppHandle, reason: String) {
+    eprintln!("[dsh-desktop] {reason}");
+    if let Some(state) = app.try_state::<StartupError>() {
+        if let Ok(mut guard) = state.0.lock() {
+            *guard = Some(reason);
+        }
+    }
 }
 
 /// Supervise the spawned server: mirror its output to the log file, wait for
@@ -242,13 +258,13 @@ pub fn watch_server(app: AppHandle, window: WebviewWindow) {
             Some(child) => match child.stdout.take() {
                 Some(stdout) => stdout,
                 None => {
-                    eprintln!("[dsh-desktop] server stdout already taken");
+                    record_startup_error(&app, "server stdout already taken".to_string());
                     let _ = window.navigate(local_app_url("error.html"));
                     return;
                 }
             },
             None => {
-                eprintln!("[dsh-desktop] server child missing while starting supervisor");
+                record_startup_error(&app, "server child missing while starting supervisor".to_string());
                 let _ = window.navigate(local_app_url("error.html"));
                 return;
             }
@@ -339,7 +355,10 @@ pub fn watch_server(app: AppHandle, window: WebviewWindow) {
                     // grace window before declaring it dead.
                     let since = *unresponsive_since.get_or_insert(Instant::now());
                     if since.elapsed() > UNRESPONSIVE_TIMEOUT {
-                        eprintln!("[dsh-desktop] server became unresponsive; showing error page");
+                        record_startup_error(
+                            &app,
+                            format!("服务器就绪后停止响应（{} 秒无 HTTP 应答）", UNRESPONSIVE_TIMEOUT.as_secs()),
+                        );
                         break;
                     }
                 }
@@ -348,14 +367,16 @@ pub fn watch_server(app: AppHandle, window: WebviewWindow) {
                 Ok(ServerEvent::Url(found)) => match found.parse() {
                     Ok(parsed) => url = Some(parsed),
                     Err(_) => {
-                        eprintln!("[dsh-desktop] server printed an invalid URL: {found}");
+                        record_startup_error(&app, format!("server printed an invalid URL: {found}"));
                         break;
                     }
                 },
                 Ok(ServerEvent::Exited(code)) => {
-                    eprintln!(
-                        "[dsh-desktop] server exited (code {code:?}){}",
-                        if ready { " after becoming ready" } else { " before becoming ready" }
+                    record_startup_error(
+                        &app,
+                        format!(
+                            "服务器进程在就绪前退出（退出码 {code:?}）；详情见 dsh-web.log"
+                        ),
                     );
                     break;
                 }
@@ -363,7 +384,10 @@ pub fn watch_server(app: AppHandle, window: WebviewWindow) {
                 Err(TryRecvError::Disconnected) => break,
             }
             if !ready && start.elapsed() > STARTUP_TIMEOUT {
-                eprintln!("[dsh-desktop] timed out waiting for the server (url={url:?})");
+                record_startup_error(
+                    &app,
+                    format!("等待服务器就绪超时（{} 秒）；详情见 dsh-web.log", STARTUP_TIMEOUT.as_secs()),
+                );
                 break;
             }
             thread::sleep(POLL_INTERVAL);
@@ -680,4 +704,57 @@ fn process_exists(pid: i32) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+/// What the error page shows: the recorded failure reason, the tail of the
+/// server log, and version provenance — everything needed to tell a store
+/// migration crash from a Gatekeeper kill or a port/profile problem.
+#[derive(Serialize)]
+pub struct ServerDiagnostics {
+    pub reason: Option<String>,
+    pub log_path: Option<String>,
+    pub log_tail: Vec<String>,
+    pub app_version: String,
+    pub dsh_version: Option<String>,
+}
+
+/// Maximum number of log lines handed to the error page.
+const LOG_TAIL_LINES: usize = 120;
+
+#[tauri::command]
+pub fn server_diagnostics(app: AppHandle) -> ServerDiagnostics {
+    let reason = app
+        .try_state::<StartupError>()
+        .and_then(|state| state.0.lock().ok().and_then(|guard| guard.clone()));
+    let log_path = log_dir(&app).ok().map(|dir| dir.join("dsh-web.log"));
+    let log_tail = log_path
+        .as_ref()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|text| {
+            let lines: Vec<&str> = text.lines().collect();
+            let start = lines.len().saturating_sub(LOG_TAIL_LINES);
+            lines[start..].iter().map(|line| line.to_string()).collect()
+        })
+        .unwrap_or_default();
+    let dsh_version = runtime_dir(&app)
+        .ok()
+        .and_then(|runtime| std::fs::read_to_string(runtime.join("manifest.json")).ok())
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|json| json.get("dsh").and_then(|v| v.as_str()).map(String::from));
+    ServerDiagnostics {
+        reason,
+        log_path: log_path.map(|path| path.to_string_lossy().into_owned()),
+        log_tail,
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        dsh_version,
+    }
+}
+
+/// Error-page retry: kill whatever is left of the old server, spawn a fresh
+/// one, and send the main window back to the splash. The supervisor navigates
+/// to the GUI once the new server is ready (or back here on failure).
+#[tauri::command]
+pub fn retry_server(app: AppHandle) -> Result<(), String> {
+    crate::restart_server(&app);
+    Ok(())
 }

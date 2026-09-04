@@ -94,6 +94,7 @@
     .badge { font-size: 11px; border-radius: 6px; padding: 1px 7px; margin-left: 6px; }
     .badge.installed { background: rgba(52,211,153,.15); color: var(--ok); }
     .badge.update { background: rgba(255,193,7,.15); color: var(--update); }
+    .badge.plain { background: rgba(139,160,184,.15); color: var(--muted); }
     .ver { color: var(--muted); font-size: 11px; font-weight: 400; margin-left: 6px; }
     #log {
       color: var(--muted); font-size: 12px; margin-top: 10px;
@@ -115,7 +116,7 @@
     <h2>已安装</h2>
     <div id="installed" class="empty">加载中…</div>
     <div class="notice" id="restartNotice" style="display:none">
-      插件安装/卸载后需 <b>重启 Web 服务</b> 生效（菜单：DeepSeek Harness → Restart Web Server）。
+      已开始 <b>自动重启 Web 服务</b> 使变更生效（主窗口会短暂回到启动页，随后自动进入界面）。
     </div>
 
     <h2>从 GitHub 安装</h2>
@@ -182,12 +183,20 @@
           }
           const meta = document.createElement('div');
           meta.className = 'meta';
+          const activeBundle = (m.bundles || []).includes(name);
           let nameHtml = `<div class="name">${esc(name)}`;
           if (versions[name]) nameHtml += `<span class="ver">v${esc(versions[name])}</span>`;
           if (updates.includes(name)) nameHtml += `<span class="badge update">有更新</span>`;
+          if (!activeBundle) nameHtml += `<span class="badge plain">未激活</span>`;
           nameHtml += '</div>';
           if (metaData.description) {
             nameHtml += `<div class="desc">${esc(metaData.description)}</div>`;
+          }
+          // A dependency that declares no dsh.bundle never joins the profile's
+          // bundle stack: it loads nothing at boot. Make that state visible —
+          // it is the usual reason an install "shows but has no effect".
+          if (!activeBundle) {
+            nameHtml += `<div class="desc">未激活：该包未声明 dsh.bundle，不会作为配置层加载（安装成功也无界面效果）。</div>`;
           }
           meta.innerHTML = nameHtml;
           const badge = document.createElement('span');
