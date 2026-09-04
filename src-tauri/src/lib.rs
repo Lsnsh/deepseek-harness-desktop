@@ -32,6 +32,11 @@ pub struct ServerChild(pub Arc<Mutex<Option<Child>>>);
 #[derive(Default)]
 pub struct ServerOrigin(pub Arc<Mutex<Option<Url>>>);
 
+/// The most recent server startup/supervision failure reason, shown on the
+/// error page via the `server_diagnostics` command.
+#[derive(Default)]
+pub struct StartupError(pub Arc<Mutex<Option<String>>>);
+
 /// Whether a URL is one of the app's own local pages (splash / error).
 fn is_local_app_page(url: &Url) -> bool {
     url.scheme() == "tauri"
@@ -86,9 +91,10 @@ fn show_about(app: &AppHandle) {
 }
 
 /// Kill the bundled web server and start it fresh (used after installing or
-/// removing plugins, whose bundle layers are composed at boot). The window
-/// returns to the splash until the new server is ready.
-fn restart_server(app: &AppHandle) {
+/// removing plugins, whose bundle layers are composed at boot; also the
+/// error-page retry). The window returns to the splash until the new server
+/// is ready.
+pub(crate) fn restart_server(app: &AppHandle) {
     match spawn_and_watch(app) {
         Ok(()) => {
             if let Some(window) = app.get_webview_window("main") {
@@ -96,7 +102,7 @@ fn restart_server(app: &AppHandle) {
             }
         }
         Err(err) => {
-            eprintln!("[dsh-desktop] failed to restart the web server: {err}");
+            server::record_startup_error(app, format!("无法启动内置服务：{err}"));
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.navigate(local_app_url("error.html"));
             }
@@ -114,6 +120,11 @@ pub(crate) fn spawn_and_watch(app: &AppHandle) -> Result<(), String> {
         let _ = child.wait();
     }
     *app.state::<ServerOrigin>().0.lock().unwrap() = None;
+    // A fresh spawn invalidates the previous failure reason shown on the
+    // error page.
+    if let Ok(mut guard) = app.state::<StartupError>().0.lock() {
+        *guard = None;
+    }
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
@@ -230,6 +241,7 @@ pub fn run() {
         })
         .manage(ServerChild::default())
         .manage(ServerOrigin::default())
+        .manage(StartupError::default())
         .manage(notify::NotifyState::default())
         .manage(plugins::SearchCache::default())
         .manage(updater_progress::ProgressState::default())
@@ -241,6 +253,8 @@ pub fn run() {
             server::check_conflict,
             server::take_over,
             server::attach,
+            server::server_diagnostics,
+            server::retry_server,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -307,7 +321,7 @@ pub fn run() {
             });
             tray::build(app.handle())?;
             if let Err(err) = spawn_and_watch(&handle) {
-                eprintln!("[dsh-desktop] failed to start the web server: {err}");
+                server::record_startup_error(&handle, format!("无法启动内置服务：{err}"));
                 let _ = window.navigate(local_app_url("error.html"));
             }
             // Session-completion notifications (background poller).

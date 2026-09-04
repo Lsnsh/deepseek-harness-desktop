@@ -2,12 +2,13 @@
 //!
 //! The harness forwards plugin operations to `pnpm` inside the profile
 //! directory (`$DSH_HOME/profiles/<name>`), and bundle layers composed from
-//! `dsh.profile.bundles` are read at boot — so installs/removals need a
-//! server restart to take effect (see the Restart Web Server action in
-//! lib.rs). The bundled runtime ships its own pnpm (npm-package form, run on
-//! the bundled Node) because normal users do not have pnpm installed; we
-//! expose it on PATH via a tiny shim before spawning the `dsh plugin`
-//! subcommand.
+//! `dsh.profile.bundles` are read at boot — so installs/removals only take
+//! effect after the server recomposes. The shell therefore restarts the web
+//! server automatically after every successful install/remove (the "Restart
+//! Web Server" menu action remains as a manual fallback). The bundled runtime
+//! ships its own pnpm (npm-package form, run on the bundled Node) because
+//! normal users do not have pnpm installed; we expose it on PATH via a tiny
+//! shim before spawning the `dsh plugin` subcommand.
 //!
 //! Search hits the GitHub search API (`topic:dsh-plugin`); the unauthenticated
 //! rate limit is 10 req/min, so results are cached in memory.
@@ -325,6 +326,9 @@ pub fn install_plugin(app: AppHandle, spec: String) -> Result<PluginCommandResul
             }
         }
         append_audit("install", spec, "success");
+        // Bundle layers compose at boot: restart the server so the plugin is
+        // active immediately instead of waiting for a manual restart.
+        crate::restart_server(&app);
     } else {
         append_audit("install", spec, "failure");
     }
@@ -347,6 +351,9 @@ pub fn uninstall_plugin(app: AppHandle, name: String) -> Result<PluginCommandRes
                 "卸载 {name} 命令已成功，但依赖清单中仍存在该插件。\n恢复建议：重启 Web 服务后重试卸载，或手动执行 `dsh plugin --profile web remove {name}`。"
             ));
         }
+        // Bundle layers compose at boot: restart so the removal takes effect
+        // immediately instead of waiting for a manual restart.
+        crate::restart_server(&app);
         Ok(result)
     } else {
         append_audit("uninstall", &name, "failure");
