@@ -121,8 +121,9 @@ export function installApp() {
     // key reflects the patched tree.
     const conversationClient = join(APP_DIR, 'node_modules', '@deepseek-ai', 'dsh-client-ui-conversation', 'lib', 'client.js')
     if (existsSync(conversationClient)) {
-      const { applied } = patchConversationClient(conversationClient)
-      console.log(`assemble: conversation client ${applied ? 'patched' : 'already patched'} (reasoning-row scroll fix)`)
+      const result = patchConversationClient(conversationClient)
+      const state = result.skipped ? 'skipped (no auto-scroll upstream)' : result.applied ? 'patched' : 'already patched'
+      console.log(`assemble: conversation client ${state} (reasoning-row scroll fix)`)
     } else {
       console.warn('assemble: dsh-client-ui-conversation client bundle not found; skipping reasoning-row patch')
     }

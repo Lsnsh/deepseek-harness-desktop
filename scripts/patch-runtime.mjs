@@ -83,10 +83,13 @@ const NEW_BLOCK = `\t\t\tconst scheduleSummaryScroll = useThrottledVisualUpdate(
 
 /**
  * Apply the reasoning-row scroll patch to one conversation plugin client
- * bundle. Idempotent; throws when the upstream snippet cannot be located.
+ * bundle. Idempotent; throws when the upstream snippet cannot be located but
+ * the thrash pattern is still referenced, and reports `skipped` when upstream
+ * removed the auto-scroll entirely (dsh 0.1.2+), leaving nothing to patch.
  * @param {string} file - path to dsh-client-ui-conversation/lib/client.js.
- * @returns {{applied: boolean, file: string}} applied=true when this run
- *   performed the replacement, false when it was already patched.
+ * @returns {{applied: boolean, skipped?: boolean, file: string}} applied=true
+ *   when this run performed the replacement, false when it was already
+ *   patched or skipped.
  */
 export function patchConversationClient(file) {
   const source = readFileSync(file, 'utf8')
@@ -94,6 +97,18 @@ export function patchConversationClient(file) {
     return { applied: false, file }
   }
   if (!source.includes(OLD_BLOCK)) {
+    // dsh 0.1.2-rc.1 removed the reasoning-row auto-scroll entirely (no
+    // scheduleSummaryScroll, no scrollWidth read), so there is nothing left
+    // to patch — skip instead of failing. A bundle that still references the
+    // pattern but no longer matches our exact snippet has changed shape:
+    // keep failing loudly so the new code gets reviewed before shipping.
+    if (!source.includes('scheduleSummaryScroll') && !source.includes('scrollWidth - element.clientWidth')) {
+      console.warn(
+        `patch-runtime: ${file} no longer contains the reasoning-row auto-scroll ` +
+          '(upstream removed it in the 0.1.2 line); skipping the conversation patch',
+      )
+      return { applied: false, skipped: true, file }
+    }
     throw new Error(
       `patch-runtime: could not locate the ReasoningRow scroll snippet in ${file}.\n` +
         'The upstream @deepseek-ai/dsh-client-ui-conversation bundle has changed; ' +
