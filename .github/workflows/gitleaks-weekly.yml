@@ -32,6 +32,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_NOTIFY_USER_LIST: '@lsnsh'
+          # The SARIF artifact has no consumer here (no GHAS code scanning);
+          # uploading one on every run just accumulates storage.
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
       - name: Open an issue when a leak is found
         if: failure()

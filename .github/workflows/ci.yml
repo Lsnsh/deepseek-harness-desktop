@@ -44,6 +44,9 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The SARIF artifact has no consumer here (no GHAS code scanning);
+          # uploading one on every run just accumulates storage.
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
