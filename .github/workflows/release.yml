@@ -33,8 +33,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
       - name: Resolve and validate the version
         id: resolve
         run: |
@@ -67,8 +65,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -84,8 +80,36 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache the Rust build
+        # The release build compiles the full tauri tree in --release; without
+        # a cache every release pays the whole compile again. rust-cache keys
+        # on Cargo.lock + toolchain + OS, so it only invalidates on real
+        # dependency changes (runner OS is part of the key — no collision with
+        # the CI job's Linux cache).
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Compute the runtime cache key
+        id: runtime-key
+        # The assembled runtime only changes when the pinned dsh version, the
+        # pinned Node/pnpm versions, or the assembly/patch scripts change —
+        # key on exactly those so releases with an unchanged dsh skip the
+        # ~10-minute npm install entirely.
+        run: |
+          dsh="$(node -p "require('./package.json').dependencies['@deepseek-ai/dsh']")"
+          seed="$(cat scripts/assemble-runtime.mjs scripts/patch-runtime.mjs scripts/download-node.mjs scripts/download-pnpm.mjs | shasum -a 256 | cut -d' ' -f1)"
+          echo "key=runtime-app-${dsh}-${seed}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the assembled runtime
+        id: runtime-cache
+        uses: actions/cache@v4
+        with:
+          path: resources/runtime
+          key: ${{ steps.runtime-key.outputs.key }}
 
       - name: Build the shell frontend
         run: pnpm build
@@ -110,6 +134,11 @@ jobs:
             -k dsh-temp dsh-build.keychain
           security find-identity -v -p codesigning dsh-build.keychain
       - name: Assemble the bundled runtime (with size pruning)
+        # Skipped entirely on a runtime-cache hit: the cached tree is keyed on
+        # the dsh/Node/pnpm versions + assembly script hashes, so it is exactly
+        # what assemble would produce (already pruned and signed). The smoke
+        # test below still validates the cached tree every release.
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         # DSH_DESKTOP_PRUNE=1 (opt-in in assemble-runtime.mjs) strips the
         # bundled node binary and drops dead weight (.map/.d.ts, node-pty
         # cross-platform prebuilds, READMEs/tests): ~97 MiB -> ~63 MiB.
@@ -204,6 +233,10 @@ jobs:
             src-tauri/target/release/bundle/
             !src-tauri/target/release/bundle/macos/DeepSeek Harness Developer Preview.app/
           if-no-files-found: error
+          # Intermediate only: the release job consumes it within the same
+          # run, and the published release carries the real assets. No need
+          # to keep it for the default 90 days.
+          retention-days: 1
 
   release:
     needs: [version, build]
