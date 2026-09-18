@@ -8,6 +8,40 @@ prerelease suffix during development.
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.12] — 2026-09-18
+
+### Fixed
+
+- **The "local service failed to start" page now explains itself**: it used
+  to be a static notice ("see the application output for the log path"), so a
+  user stuck on it had nothing to go on. The page now shows the concrete
+  failure reason (server exited before ready / startup timed out / became
+  unresponsive after ready / could not spawn), the app and bundled-dsh
+  versions, and the last 120 lines of `dsh-web.log`, with **Retry** and
+  **Copy diagnostics** buttons (the copied block is everything needed to
+  report the problem). The likely-causes list also covers a `~/.dsh` data
+  directory written by a newer dsh (format migration).
+- **Plugin install/remove now takes effect immediately**: dsh composes its
+  plugin layers (`dsh.profile.bundles`) at server boot, so an install used to
+  need a manual "Restart Web Server" that most users never found — it looked
+  like the plugin simply did not work. The shell now restarts the web server
+  automatically after a successful install/remove (the window briefly returns
+  to the splash and then comes back). Dependencies that declare no
+  `dsh.bundle` are badged **未激活 / inactive** in the Plugin Manager — they
+  load nothing at boot by design, which is the other usual reason an install
+  shows no effect.
+
+### Changed
+
+- **The bundled server no longer opens a browser window**: since dsh 0.1.1
+  `dsh web` opens the served URL in the default browser, but the desktop
+  window *is* the UI. The shell now passes `--no-open`.
+- **Bundled dsh stays 0.1.1-rc.2**: upstream 0.1.2-rc.1 introduced a one-time
+  token on the launch URL (which gates loopback too) and replaced the HTTP
+  `/api/{method}` gateway with a WebSocket mux; the shell needs a dedicated
+  adaptation pass before it can follow. The automated upstream check is now
+  capped at the adapted release line so it cannot bump into 0.1.2 on its own.
+
 ## [0.1.0-beta.11] — 2026-09-03
 
 ### Fixed
@@ -297,7 +331,8 @@ prerelease suffix during development.
 - Documentation: bilingual README (`README.md` / `README-zh.md`) and this
   changelog (`CHANGELOG.md` / `CHANGELOG-zh.md`), MIT license.
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.11...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.12...HEAD
+[0.1.0-beta.12]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.9
