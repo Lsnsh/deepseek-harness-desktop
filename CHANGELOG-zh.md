@@ -7,6 +7,31 @@
 
 > ⏰ 本文档中的日期与时间均为 **UTC+8（北京时间）**。
 
+## [0.1.0-beta.12] — 2026-09-18
+
+### 修复
+
+- **「本地服务启动失败」页现在会说明原因**：此前是一张静态提示页（"日志路径见
+  应用输出"），用户卡在这里时无从判断。现在页面会显示具体失败原因（服务进程
+  提前退出 / 启动超时 / 就绪后失联 / 无法启动）、应用与内置 dsh 版本，以及
+  `dsh-web.log` 的最后 120 行，并提供「**重试启动**」与「**复制诊断信息**」
+  按钮（复制出的内容即为完整的排查材料）。常见原因清单也补充了「`~/.dsh`
+  数据目录被更高版本 dsh 写入过（格式迁移）」这一条。
+- **插件安装/卸载现在立即生效**：dsh 的插件层（`dsh.profile.bundles`）只在
+  服务启动时组合，此前装完插件必须手动去菜单找「Restart Web Server」——多数
+  用户不知道，看起来就是"装了没效果"。现在安装/卸载成功后桌面端自动重启 Web
+  服务（主窗口短暂回到启动页后自动恢复）。插件管理器还会对未声明 `dsh.bundle`
+  的依赖标记「**未激活**」——这类包按设计不参与加载，是"装了没效果"的另一种
+  常见来源，现在一眼可见。
+
+### 变更
+
+- **内置服务不再自动打开系统浏览器**：dsh 0.1.1 起 `dsh web` 默认在浏览器中
+  打开界面，而桌面端窗口本身就是界面；现在启动内置服务时传入 `--no-open`。
+- **捆绑 dsh 保持 0.1.1-rc.2**：上游 0.1.2-rc.1 引入了启动 URL 一次性 token
+  门禁（对本地回环同样生效）与 WebSocket 网关（`/api/remote.mux`），桌面端
+  需要专项适配才能跟随；自动上游检查已限制在已适配版本线内，不会再自动升级。
+
 ## [0.1.0-beta.11] — 2026-09-03
 
 ### 修复
@@ -250,7 +275,8 @@
 - 文档：双语 README（`README.md` / `README-zh.md`）与本更新日志
   （`CHANGELOG.md` / `CHANGELOG-zh.md`），MIT 许可。
 
-[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.11...HEAD
+[unreleased]: https://github.com/Lsnsh/deepseek-harness-desktop/compare/v0.1.0-beta.12...HEAD
+[0.1.0-beta.12]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/Lsnsh/deepseek-harness-desktop/releases/tag/v0.1.0-beta.9
