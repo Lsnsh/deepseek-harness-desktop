@@ -37,7 +37,7 @@
  * @module deepseek-harness-desktop/patch-runtime
  */
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -66,6 +66,27 @@ const DEFAULT_RUNTIME_TARGET = join(
   'lib',
   'client.js',
 )
+
+/**
+ * The frame-flush Notifier moved between dsh lines: `dsh-client-runtime`
+ * shipped it through 0.1.1; since 0.1.2-rc.1 it lives in
+ * `dsh-api-session-controller` (code unchanged, floor still missing).
+ * Candidates are tried in order; the first existing file is the target.
+ */
+const FLUSH_FLOOR_TARGETS = [
+  join(
+    DESKTOP_ROOT,
+    'resources',
+    'runtime',
+    'app',
+    'node_modules',
+    '@deepseek-ai',
+    'dsh-api-session-controller',
+    'lib',
+    'client.js',
+  ),
+  DEFAULT_RUNTIME_TARGET,
+]
 
 /** @type {string} the exact upstream block we patch (tabs as in the published file). */
 const OLD_BLOCK = `\t\t\tconst scheduleSummaryScroll = useThrottledVisualUpdate(() => {
@@ -182,11 +203,28 @@ export function patchRuntimeFlushFloor(file) {
   return { applied: true, file }
 }
 
-/** Apply every runtime patch to their default repo locations. */
+/**
+ * Apply every runtime patch to their default repo locations. Each target is
+ * optional: a bundle that is absent from the assembled runtime (or whose
+ * thrash pattern upstream removed) is skipped with a note, while a present
+ * target that no longer matches fails the run.
+ */
 export function patchAll() {
   const results = []
-  results.push(patchConversationClient(DEFAULT_TARGET))
-  results.push(patchRuntimeFlushFloor(DEFAULT_RUNTIME_TARGET))
+  if (existsSync(DEFAULT_TARGET)) {
+    results.push(patchConversationClient(DEFAULT_TARGET))
+  } else {
+    console.warn(`patch-runtime: conversation bundle not found at ${DEFAULT_TARGET}; skipping reasoning-row patch`)
+  }
+  const flushTarget = FLUSH_FLOOR_TARGETS.find((file) => existsSync(file))
+  if (flushTarget) {
+    results.push(patchRuntimeFlushFloor(flushTarget))
+  } else {
+    console.warn(
+      'patch-runtime: no frame-flush target found (dsh-api-session-controller / dsh-client-runtime); ' +
+        'skipping flush-floor patch — verify the notifier moved again before shipping',
+    )
+  }
   return results
 }
 
@@ -196,8 +234,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const results = []
     if (process.argv[2]) {
       // explicit single-file mode: detect which patch applies by path hint
-      if (process.argv[2].includes('dsh-client-runtime')) results.push(patchRuntimeFlushFloor(resolve(process.argv[2])))
-      else results.push(patchConversationClient(resolve(process.argv[2])))
+      if (process.argv[2].includes('dsh-client-runtime') || process.argv[2].includes('api-session-controller')) {
+        results.push(patchRuntimeFlushFloor(resolve(process.argv[2])))
+      } else {
+        results.push(patchConversationClient(resolve(process.argv[2])))
+      }
     } else {
       results.push(...patchAll())
     }

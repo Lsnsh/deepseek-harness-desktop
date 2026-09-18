@@ -287,8 +287,8 @@ pub fn watch_server(app: AppHandle, window: WebviewWindow) {
         for line in reader.lines() {
             let Ok(line) = line else { break };
             mirror(&mut log, &line);
-            if let Some(port) = parse_port(&line) {
-                let url = format!("http://127.0.0.1:{port}");
+            if let Some(suffix) = parse_url_suffix(&line) {
+                let url = format!("http://127.0.0.1:{suffix}");
                 if tx_stdout.send(ServerEvent::Url(url)).is_err() {
                     break;
                 }
@@ -345,7 +345,13 @@ pub fn watch_server(app: AppHandle, window: WebviewWindow) {
             if let Some(url) = url.clone() {
                 if http_get_ok(&url) {
                     if !ready {
-                        *origin_state.lock().unwrap() = Some(url.clone());
+                        // Record the CLEAN origin (no one-time-token query):
+                        // the navigation fence compares scheme/host/port only,
+                        // and jump_to_last rewrites the query string, which
+                        // would drop a token stored here.
+                        let mut origin = url.clone();
+                        origin.set_query(None);
+                        *origin_state.lock().unwrap() = Some(origin);
                         let _ = window.navigate(url.clone());
                         ready = true;
                     }
@@ -401,16 +407,21 @@ pub fn watch_server(app: AppHandle, window: WebviewWindow) {
     });
 }
 
-/// Parse the readiness URL line: `dsh web: http://127.0.0.1:<port>`.
-fn parse_port(line: &str) -> Option<String> {
+/// Parse the readiness URL suffix: everything after
+/// `dsh web: http://127.0.0.1:` up to the first whitespace. dsh ≤ 0.1.1
+/// prints a bare port; dsh ≥ 0.1.2 appends a one-time-token query
+/// (`62917/?token=…`) that must be redeemed before later requests pass —
+/// carrying the full suffix keeps both lines working.
+fn parse_url_suffix(line: &str) -> Option<String> {
     let marker = "dsh web: http://127.0.0.1:";
     let index = line.find(marker)?;
     let rest = &line[index + marker.len()..];
-    let port: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-    if port.is_empty() {
+    let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    let suffix = &rest[..end];
+    if suffix.is_empty() {
         None
     } else {
-        Some(port)
+        Some(suffix.to_string())
     }
 }
 

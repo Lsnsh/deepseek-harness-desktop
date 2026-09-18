@@ -106,7 +106,12 @@ export function installApp() {
     mkdirSync(APP_DIR, { recursive: true })
     const pkg = join(staged, 'node_modules', '@deepseek-ai', 'dsh')
     cpSync(join(pkg, 'lib'), join(APP_DIR, 'lib'), { recursive: true })
-    cpSync(join(pkg, 'config'), join(APP_DIR, 'config'), { recursive: true })
+    // dsh ≤ 0.1.1 shipped config/ (agent-presets templates) in the package;
+    // 0.1.2 moved it into dedicated packages in the dependency tree, so copy
+    // it only when the layout still has it.
+    if (existsSync(join(pkg, 'config'))) {
+      cpSync(join(pkg, 'config'), join(APP_DIR, 'config'), { recursive: true })
+    }
     cpSync(join(pkg, 'package.json'), join(APP_DIR, 'package.json'))
     cpSync(join(staged, 'node_modules'), join(APP_DIR, 'node_modules'), { recursive: true })
     // npm writes bin shims into node_modules/.bin as symlinks whose targets
@@ -127,12 +132,17 @@ export function installApp() {
     } else {
       console.warn('assemble: dsh-client-ui-conversation client bundle not found; skipping reasoning-row patch')
     }
-    const runtimeClient = join(APP_DIR, 'node_modules', '@deepseek-ai', 'dsh-client-runtime', 'lib', 'client.js')
-    if (existsSync(runtimeClient)) {
+    // The frame-flush Notifier moved between dsh lines: dsh-client-runtime
+    // (≤ 0.1.1) → dsh-api-session-controller (0.1.2+), code unchanged.
+    const runtimeClient = [
+      join(APP_DIR, 'node_modules', '@deepseek-ai', 'dsh-api-session-controller', 'lib', 'client.js'),
+      join(APP_DIR, 'node_modules', '@deepseek-ai', 'dsh-client-runtime', 'lib', 'client.js'),
+    ].find((file) => existsSync(file))
+    if (runtimeClient) {
       const { applied } = patchRuntimeFlushFloor(runtimeClient)
       console.log(`assemble: runtime client ${applied ? 'patched' : 'already patched'} (frame-flush floor)`)
     } else {
-      console.warn('assemble: dsh-client-runtime client bundle not found; skipping frame-flush floor patch')
+      console.warn('assemble: no frame-flush target found (api-session-controller / client-runtime); skipping flush-floor patch')
     }
     // Any other files the package ships (README etc.) are not needed.
     console.log(`assemble: installed @deepseek-ai/dsh@${version} into ${relative(DESKTOP_ROOT, APP_DIR)}`)

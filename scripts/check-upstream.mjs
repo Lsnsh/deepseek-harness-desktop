@@ -94,6 +94,18 @@ export function applyBump(version) {
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n')
 }
 
+/**
+ * The newest dsh release line the desktop shell has been adapted to.
+ *
+ * dsh 0.1.2 introduced a one-time-token launch URL (bare loopback requests
+ * get 401 until the token URL is redeemed) and replaced the HTTP
+ * `/api/{method}` gateway with the WebSocket `/api/remote.mux` mux — the
+ * shell does not handle either yet (notification-jump probe, attach guard).
+ * Until the adaptation lands, the scheduled check must not bump above this
+ * line; lift it deliberately (or delete it) once the shell supports 0.1.2.
+ */
+const ADAPTED_DSH_LINE = '0.1.1'
+
 export async function main(argv) {
   const apply = argv.includes('--apply')
   let pinned
@@ -111,6 +123,13 @@ export async function main(argv) {
     return 2
   }
   console.log(`check-upstream: pinned ${pinned}, latest ${latest}`)
+  if (compareVersions(latest, ADAPTED_DSH_LINE) > 0) {
+    console.log(
+      `check-upstream: latest ${latest} is above the adapted dsh line ${ADAPTED_DSH_LINE} ` +
+        '(0.1.2: token-gated launch URL + WebSocket gateway, desktop adaptation pending); skipping',
+    )
+    return 0
+  }
   if (compareVersions(latest, pinned) <= 0) {
     console.log('check-upstream: up to date')
     return 0

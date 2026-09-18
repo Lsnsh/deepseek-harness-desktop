@@ -27,7 +27,7 @@ if (!existsSync(nodeBin) || !existsSync(appEntry)) {
 
 const timeoutSeconds = Number(process.argv[2] ?? '90')
 
-const child = spawn(nodeBin, [appEntry, '--profile', 'web', '--port', '0'], {
+const child = spawn(nodeBin, [appEntry, '--profile', 'web', '--port', '0', '--no-open'], {
   cwd: RUNTIME_DIR,
   stdio: ['ignore', 'pipe', 'pipe'],
 })
@@ -47,8 +47,11 @@ const finish = (code) => {
 child.stdout.setEncoding('utf8')
 child.stdout.on('data', (chunk) => {
   process.stdout.write(`[server] ${chunk}`)
-  const match = chunk.match(/dsh web: http:\/\/127\.0\.0\.1:(\d+)/)
-  if (match && !url) url = `http://127.0.0.1:${match[1]}`
+  // dsh ≤ 0.1.1 prints a bare URL; 0.1.2 appends a one-time token
+  // (`?token=…`) that must be redeemed for later requests to pass, so
+  // capture and GET the full URL, not just the port.
+  const match = chunk.match(/dsh web: (http:\/\/127\.0\.0\.1:\d+\S*)/)
+  if (match && !url) url = match[1]
 })
 child.stderr.setEncoding('utf8')
 child.stderr.on('data', (chunk) => process.stderr.write(`[server] ${chunk}`))
